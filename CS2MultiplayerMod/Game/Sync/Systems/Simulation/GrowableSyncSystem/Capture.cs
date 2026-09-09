@@ -115,6 +115,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < entities.Length; i++)
                 {
                     Entity entity = entities[i];
+                    // Tool deletions travel through DeleteSync, but must still release the
+                    // host observations or repeated zoning/bulldozing retains retired entities.
+                    _announcedLevelChange.Remove(entity);
+                    _hostConstruction.Remove(entity);
+                    _hostState.Remove(entity);
                     Entity prefab = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
                     if (!IsAutonomousGrowable(entity, now)) continue;
                     if (_deleteSync != null && _deleteSync.IsToolDeleteOriginal(entity)) continue;
@@ -124,9 +129,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                     global::Game.Objects.Transform transform =
                         EntityManager.GetComponentData<global::Game.Objects.Transform>(entity);
-                    _announcedLevelChange.Remove(entity);
-                    _hostConstruction.Remove(entity);
-                    _hostState.Remove(entity);
 
                     var command = new GrowableLifecycleCommand
                     {
@@ -158,77 +160,81 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// already exists, so there is no one frame to catch it on. The query only holds buildings
         /// currently under construction, which is a handful even in a large city.
         /// </summary>
-        private void CaptureLevelChanges(MultiplayerSession session, long now)
+        private void CaptureConstruction(MultiplayerSession session, long now)
         {
-            if (_announcedLevelChange.Count > 0) PruneAnnouncedLevelChanges();
-            if (_levelChanging.IsEmptyIgnoreFilter) return;
-
+            // Both consumers need the same active sites. Materialize the query once, and
+            // still run completion detection when it is empty (the last site just finished).
             NativeArray<Entity> entities = _levelChanging.ToEntityArray(Allocator.Temp);
             try
             {
-                for (int i = 0; i < entities.Length; i++)
-                {
-                    Entity entity = entities[i];
-                    Entity newPrefab = EntityManager.GetComponentData<UnderConstruction>(entity).m_NewPrefab;
-
-                    // A freshly grown building is also under construction, but with no replacement
-                    // prefab. Its spawn command already carried everything the peer needs.
-                    if (newPrefab == Entity.Null) continue;
-                    if (!IsAutonomousGrowable(entity, now)) continue;
-                    if (!IsGrowablePrefab(newPrefab)) continue;
-
-                    Entity announced;
-                    if (_announcedLevelChange.TryGetValue(entity, out announced) &&
-                        announced == newPrefab) continue;
-
-                    string name = PrefabIndexSafeName(newPrefab);
-                    if (string.IsNullOrEmpty(name)) continue;
-
-                    if (_announcedLevelChange.Count >= MaxTrackedLevelChanges)
-                    {
-                        // Only reachable if buildings are levelling faster than they finish. Drop
-                        // the memory rather than the cap: a repeat announcement is idempotent on
-                        // the receiver, an unbounded dictionary is not recoverable.
-                        SyncLog.Warn(LogTopic.Buildings, "GrowableSync: level-change memory hit " +
-                            MaxTrackedLevelChanges + " entries and was cleared; " +
-                            "some level changes may be announced twice.");
-                        _announcedLevelChange.Clear();
-                    }
-                    _announcedLevelChange[entity] = newPrefab;
-
-                    global::Game.Objects.Transform transform =
-                        EntityManager.GetComponentData<global::Game.Objects.Transform>(entity);
-                    var command = new GrowableLifecycleCommand
-                    {
-                        Op = GrowableLifecycleCommand.OpLevel,
-                        PrefabName = name,
-                        AnchorX = transform.m_Position.x,
-                        AnchorY = transform.m_Position.y,
-                        AnchorZ = transform.m_Position.z,
-                        Flags = GrowableLifecycleCommand.FlagUnderConstruction,
-                        ConstructionProgress = EntityManager
-                            .GetComponentData<UnderConstruction>(entity).m_Progress,
-                        ConstructionSpeed = EntityManager
-                            .GetComponentData<UnderConstruction>(entity).m_Speed,
-                        Condition = CaptureCondition(entity),
-                        StateFlags = CaptureStateFlags(entity),
-                    };
-                    Send(session, command);
-                    ObserveHostState(entity, command);
-                    _hostConstruction[entity] = new HostConstructionObservation
-                    {
-                        Progress = command.ConstructionProgress,
-                        Speed = command.ConstructionSpeed,
-                    };
-                    _sentLevel++;
-                    SyncLog.Trace(LogTopic.Buildings, "GrowableSync capture: level change to '" +
-                        name + "' at " + Format(transform.m_Position) + " seq=" + command.Sequence +
-                        ".");
-                }
+                CaptureLevelChanges(session, now, entities);
+                CaptureConstructionChanges(session, now, entities);
             }
-            finally
+            finally { entities.Dispose(); }
+        }
+
+        private void CaptureLevelChanges(MultiplayerSession session, long now,
+            NativeArray<Entity> entities)
+        {
+            if (_announcedLevelChange.Count > 0) PruneAnnouncedLevelChanges();
+            for (int i = 0; i < entities.Length; i++)
             {
-                entities.Dispose();
+                Entity entity = entities[i];
+                Entity newPrefab = EntityManager.GetComponentData<UnderConstruction>(entity).m_NewPrefab;
+
+                // A freshly grown building is also under construction, but with no replacement
+                // prefab. Its spawn command already carried everything the peer needs.
+                if (newPrefab == Entity.Null) continue;
+
+                Entity announced;
+                if (_announcedLevelChange.TryGetValue(entity, out announced) &&
+                    announced == newPrefab) continue;
+                if (!IsAutonomousGrowable(entity, now)) continue;
+                if (!IsGrowablePrefab(newPrefab)) continue;
+
+                string name = PrefabIndexSafeName(newPrefab);
+                if (string.IsNullOrEmpty(name)) continue;
+
+                if (_announcedLevelChange.Count >= MaxTrackedLevelChanges)
+                {
+                    // Only reachable if buildings are levelling faster than they finish. Drop
+                    // the memory rather than the cap: a repeat announcement is idempotent on
+                    // the receiver, an unbounded dictionary is not recoverable.
+                    SyncLog.Warn(LogTopic.Buildings, "GrowableSync: level-change memory hit " +
+                        MaxTrackedLevelChanges + " entries and was cleared; " +
+                        "some level changes may be announced twice.");
+                    _announcedLevelChange.Clear();
+                }
+                _announcedLevelChange[entity] = newPrefab;
+
+                global::Game.Objects.Transform transform =
+                    EntityManager.GetComponentData<global::Game.Objects.Transform>(entity);
+                var command = new GrowableLifecycleCommand
+                {
+                    Op = GrowableLifecycleCommand.OpLevel,
+                    PrefabName = name,
+                    AnchorX = transform.m_Position.x,
+                    AnchorY = transform.m_Position.y,
+                    AnchorZ = transform.m_Position.z,
+                    Flags = GrowableLifecycleCommand.FlagUnderConstruction,
+                    ConstructionProgress = EntityManager
+                        .GetComponentData<UnderConstruction>(entity).m_Progress,
+                    ConstructionSpeed = EntityManager
+                        .GetComponentData<UnderConstruction>(entity).m_Speed,
+                    Condition = CaptureCondition(entity),
+                    StateFlags = CaptureStateFlags(entity),
+                };
+                Send(session, command);
+                ObserveHostState(entity, command);
+                _hostConstruction[entity] = new HostConstructionObservation
+                {
+                    Progress = command.ConstructionProgress,
+                    Speed = command.ConstructionSpeed,
+                };
+                _sentLevel++;
+                SyncLog.Trace(LogTopic.Buildings, "GrowableSync capture: level change to '" +
+                    name + "' at " + Format(transform.m_Position) + " seq=" + command.Sequence +
+                    ".");
             }
         }
 
@@ -255,46 +261,40 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// narrow query twice a second is cheaper and far more timely than waiting for a rolling
         /// occupancy page.
         /// </summary>
-        private void CaptureConstructionChanges(MultiplayerSession session, long now)
+        private void CaptureConstructionChanges(MultiplayerSession session, long now,
+            NativeArray<Entity> entities)
         {
             _constructionSeen.Clear();
-            if (!_levelChanging.IsEmptyIgnoreFilter)
+            for (int i = 0; i < entities.Length; i++)
             {
-                NativeArray<Entity> entities = _levelChanging.ToEntityArray(Allocator.Temp);
-                try
-                {
-                    for (int i = 0; i < entities.Length; i++)
-                    {
-                        Entity entity = entities[i];
-                        if (!IsAutonomousGrowable(entity, now)) continue;
-                        _constructionSeen.Add(entity);
+                Entity entity = entities[i];
 
-                        UnderConstruction construction =
-                            EntityManager.GetComponentData<UnderConstruction>(entity);
-                        HostConstructionObservation observed;
-                        bool changed = !_hostConstruction.TryGetValue(entity, out observed) ||
-                                       observed.Progress != construction.m_Progress ||
-                                       observed.Speed != construction.m_Speed;
-                        if (!changed) continue;
-
-                        GrowableLifecycleCommand command;
-                        if (TryCreateStateCommand(entity, out command))
-                        {
-                            Send(session, command);
-                            ObserveHostState(entity, command);
-                            _sentState++;
-                        }
-                        _hostConstruction[entity] = new HostConstructionObservation
-                        {
-                            Progress = construction.m_Progress,
-                            Speed = construction.m_Speed,
-                        };
-                    }
-                }
-                finally
+                UnderConstruction construction =
+                    EntityManager.GetComponentData<UnderConstruction>(entity);
+                HostConstructionObservation observed;
+                bool changed = !_hostConstruction.TryGetValue(entity, out observed) ||
+                               observed.Progress != construction.m_Progress ||
+                               observed.Speed != construction.m_Speed;
+                if (!changed)
                 {
-                    entities.Dispose();
+                    _constructionSeen.Add(entity);
+                    continue;
                 }
+                if (!IsAutonomousGrowable(entity, now)) continue;
+                _constructionSeen.Add(entity);
+
+                GrowableLifecycleCommand command;
+                if (TryCreateStateCommand(entity, out command))
+                {
+                    Send(session, command);
+                    ObserveHostState(entity, command);
+                    _sentState++;
+                }
+                _hostConstruction[entity] = new HostConstructionObservation
+                {
+                    Progress = construction.m_Progress,
+                    Speed = construction.m_Speed,
+                };
             }
 
             if (_hostConstruction.Count == 0) return;
@@ -351,11 +351,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     {
                         if (cursor >= entities.Length) cursor = 0;
                         Entity entity = entities[cursor++];
-                        if (!IsAutonomousGrowable(entity, now)) continue;
                         byte flags = CaptureStateFlags(entity);
                         int condition = CaptureCondition(entity);
                         HostStateObservation previous;
-                        if (!_hostState.TryGetValue(entity, out previous))
+                        bool known = _hostState.TryGetValue(entity, out previous);
+                        // Only autonomous buildings enter this table. An unchanged observation
+                        // needs no origin/attachment/prefab inspection or outgoing payload.
+                        if (known && flags == previous.Flags && condition == previous.Condition) continue;
+                        if (!IsAutonomousGrowable(entity, now)) continue;
+                        if (!known)
                         {
                             _hostState[entity] = new HostStateObservation
                             {
@@ -364,8 +368,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                             };
                             continue;
                         }
-                        if (flags == previous.Flags && condition == previous.Condition) continue;
-
                         GrowableLifecycleCommand command;
                         if (TryCreateStateCommand(entity, out command))
                         {

@@ -171,8 +171,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     Entity existing = FindGrowableAt(position, prefab, now);
                     if (existing != Entity.Null)
                     {
-                        ApplyConditionAndState(existing, command);
-                        EntityManager.AddComponent<Updated>(existing);
+                        if (ApplyConditionAndState(existing, command))
+                            EntityManager.AddComponent<Updated>(existing);
                     }
                     _duplicates++;
                     _applied.Remember(command.Sequence, now, ReplayWindowMs);
@@ -266,8 +266,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 UnderConstruction current = EntityManager.GetComponentData<UnderConstruction>(building);
                 if (current.m_NewPrefab == prefab)
                 {
-                    ApplyConditionAndState(building, command);
-                    EntityManager.AddComponent<Updated>(building);
+                    if (ApplyConditionAndState(building, command))
+                        EntityManager.AddComponent<Updated>(building);
                     _applied.Remember(command.Sequence, now, ReplayWindowMs);
                     return true;
                 }
@@ -355,18 +355,32 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         {
                             Command = command,
                             Expiry = now + SelfRealizedWindowMs,
+                            NextAttempt = now + RetryIntervalMs,
                         });
                     }
                 }
                 return true;
             }
 
-            RepairCompletedPrefab(building, prefab, command);
-            ApplyConditionAndState(building, command);
-            EntityManager.AddComponent<Updated>(building);
+            ApplyResolvedState(building, prefab, command, now);
+            return true;
+        }
+
+        private void ApplyResolvedState(Entity building, Entity prefab,
+            GrowableLifecycleCommand command, long now)
+        {
+            bool needsUpdate = RepairCompletedPrefab(building, prefab, command);
+            needsUpdate |= ApplyConditionAndState(building, command);
+            // Condition and the construction clock are read directly by their consumers.
+            // Updated rebuilds road/utility/lot data and is only needed for lifecycle changes.
+            if (needsUpdate)
+            {
+                EntityManager.AddComponent<Updated>(building);
+                _stateRefreshes++;
+            }
+            else _stateDataOnly++;
             _applied.Remember(command.Sequence, now, ReplayWindowMs);
             _gotState++;
-            return true;
         }
 
         /// <summary>
@@ -375,11 +389,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// </summary>
         private void RetryPendingStateCorrections(long now)
         {
-            for (int i = _pendingStateCorrections.Count - 1; i >= 0; i--)
+            int remaining = _pendingStateCorrections.Count;
+            int attempts = 0;
+            while (remaining-- > 0 && _pendingStateCorrections.Count > 0 &&
+                   attempts < MaxStateRetriesPerFrame)
             {
+                if (_stateRetryCursor >= _pendingStateCorrections.Count) _stateRetryCursor = 0;
+                int i = _stateRetryCursor;
                 PendingStateCorrection pending = _pendingStateCorrections[i];
                 if (pending.Expiry <= now)
                 {
+                    attempts++;
                     // Skipped, like the level change and the removal that cannot find their
                     // building either. Completed state can also repair a missed level prefab, but
                     // the absolute occupancy/company pages carry the same completed identity and
@@ -395,15 +415,23 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     continue;
                 }
 
+                _stateRetryCursor++;
+                if (now < pending.NextAttempt) continue;
+                pending.NextAttempt = now + RetryIntervalMs;
+                attempts++;
+                _stateRetryChecks++;
+
                 var position = new float3(pending.Command.AnchorX,
                     pending.Command.AnchorY, pending.Command.AnchorZ);
                 Entity prefab;
                 _prefabIndex.TryResolve(pending.Command.PrefabName, out prefab);
-                if (FindGrowableAt(position, prefab, now) == Entity.Null) continue;
+                Entity building = FindGrowableAt(position, prefab, now);
+                if (building == Entity.Null) continue;
 
                 _pendingStateSequences.Remove(pending.Command.Sequence);
                 _pendingStateCorrections.RemoveAt(i);
-                ApplyState(pending.Command, now, false);
+                _stateRetryCursor = i;
+                ApplyResolvedState(building, prefab, pending.Command, now);
             }
         }
 
@@ -419,89 +447,5 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
         }
 
-        /// <summary>
-        /// Writes the host's condition and abandonment state onto a building. Condition is the
-        /// level-up progress bar, so leaving it local would have the peer level at its own pace.
-        /// </summary>
-        private void ApplyConditionAndState(Entity building, GrowableLifecycleCommand command)
-        {
-            if (EntityManager.HasComponent<BuildingCondition>(building))
-            {
-                BuildingCondition condition = EntityManager.GetComponentData<BuildingCondition>(building);
-                if (condition.m_Condition != command.Condition)
-                {
-                    condition.m_Condition = command.Condition;
-                    EntityManager.SetComponentData(building, condition);
-                }
-            }
-
-            SetMarker<Abandoned>(building,
-                (command.StateFlags & GrowableLifecycleCommand.StateAbandoned) != 0);
-            SetMarker<Condemned>(building,
-                (command.StateFlags & GrowableLifecycleCommand.StateCondemned) != 0);
-            SetMarker<Destroyed>(building,
-                (command.StateFlags & GrowableLifecycleCommand.StateDestroyed) != 0);
-
-            bool hostConstructing =
-                (command.Flags & GrowableLifecycleCommand.FlagUnderConstruction) != 0;
-            bool localConstructing = EntityManager.HasComponent<UnderConstruction>(building);
-            if (hostConstructing)
-            {
-                UnderConstruction construction = localConstructing
-                    ? EntityManager.GetComponentData<UnderConstruction>(building)
-                    : default(UnderConstruction);
-                construction.m_Progress = command.ConstructionProgress;
-                construction.m_Speed = command.ConstructionSpeed;
-                if (localConstructing) EntityManager.SetComponentData(building, construction);
-                else EntityManager.AddComponentData(building, construction);
-            }
-            else if (localConstructing)
-            {
-                // Let BuildingConstructionSystem perform its native completion side effects on its
-                // next pass rather than removing the marker by hand.
-                UnderConstruction construction =
-                    EntityManager.GetComponentData<UnderConstruction>(building);
-                construction.m_Progress = byte.MaxValue;
-                EntityManager.SetComponentData(building, construction);
-            }
-        }
-
-        /// <summary>
-        /// A completion state is also an absolute statement of what prefab now stands at this
-        /// anchor. If the earlier level command was dropped or arrived before its building, route
-        /// that correction through BuildingConstructionSystem instead of directly replacing
-        /// PrefabRef, preserving all native level-completion side effects.
-        /// </summary>
-        private void RepairCompletedPrefab(Entity building, Entity hostPrefab,
-            GrowableLifecycleCommand command)
-        {
-            if ((command.Flags & GrowableLifecycleCommand.FlagUnderConstruction) != 0 ||
-                !IsGrowablePrefab(hostPrefab) ||
-                !EntityManager.HasComponent<PrefabRef>(building)) return;
-
-            Entity currentPrefab = EntityManager.GetComponentData<PrefabRef>(building).m_Prefab;
-            bool localConstructing = EntityManager.HasComponent<UnderConstruction>(building);
-            if (currentPrefab == hostPrefab && !localConstructing) return;
-
-            UnderConstruction completion = localConstructing
-                ? EntityManager.GetComponentData<UnderConstruction>(building)
-                : default(UnderConstruction);
-            if (completion.m_NewPrefab == hostPrefab && completion.m_Progress >= 100) return;
-
-            completion.m_NewPrefab = hostPrefab;
-            completion.m_Progress = byte.MaxValue;
-            if (completion.m_Speed == 0) completion.m_Speed = 1;
-            if (localConstructing) EntityManager.SetComponentData(building, completion);
-            else EntityManager.AddComponentData(building, completion);
-            _repairedPrefabs++;
-        }
-
-        private void SetMarker<T>(Entity entity, bool wanted) where T : unmanaged, IComponentData
-        {
-            bool has = EntityManager.HasComponent<T>(entity);
-            if (has == wanted) return;
-            if (wanted) EntityManager.AddComponent<T>(entity);
-            else EntityManager.RemoveComponent<T>(entity);
-        }
     }
 }

@@ -142,9 +142,21 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void ValidateRealizedBuildings(long now)
         {
             ExtendValidationWindowsWhileRoadsHeld(now);
-            for (int i = _realizationValidations.Count - 1; i >= 0; i--)
+            // The dependency cannot arrive while held. Reinitializing the same road every
+            // render frame only repeats native graph work without making progress.
+            if (NetworkDependenciesHeld) return;
+            int remaining = _realizationValidations.Count;
+            int checks = 0;
+            while (remaining-- > 0 && _realizationValidations.Count > 0 &&
+                   checks < MaxValidationChecksPerFrame)
             {
+                if (_validationCursor >= _realizationValidations.Count) _validationCursor = 0;
+                int i = _validationCursor;
                 RealizationValidation pending = _realizationValidations[i];
+                if (now < pending.NextAttempt) { _validationCursor++; continue; }
+                pending.NextAttempt = now + RetryIntervalMs;
+                checks++;
+                _validationChecks++;
                 Entity building = pending.Building;
                 if (building == Entity.Null || !EntityManager.Exists(building) ||
                     EntityManager.HasComponent<Deleted>(building))
@@ -178,6 +190,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     continue;
                 }
 
+                _validationCursor++;
                 if (!EntityManager.HasComponent<Updated>(building))
                     EntityManager.AddComponent<Updated>(building);
                 Building data = EntityManager.GetComponentData<Building>(building);

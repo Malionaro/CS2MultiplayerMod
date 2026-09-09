@@ -142,6 +142,8 @@ namespace CS2MultiplayerMod.Core.Session
             // name would be indistinguishable everywhere; FinalizeJoin de-duplicates by
             // suffixing "(2)" rather than rejecting, keeping the join frictionless.
             peer.Name = WireGuard.SanitizePlayerName(request.PlayerName);
+            peer.ModVersion = request.ModVersion;
+            peer.GameVersion = request.GameVersion;
 
             // Optional manual gate: hold the join and let the host admit it by hand. The
             // player is given an id now so the host UI can reference this exact request,
@@ -177,7 +179,9 @@ namespace CS2MultiplayerMod.Core.Session
             peer.Handshaked = true;
 
             SendTo(connection, HandshakeResponse.Accept(peer.PlayerId));
-            _log.Event(LogTopic.Session, "Accepted " + peer + ".");
+            _log.Event(LogTopic.Session, "Accepted " + peer + ": mod " +
+                (string.IsNullOrEmpty(peer.ModVersion) ? "?" : peer.ModVersion) + ", game " +
+                (string.IsNullOrEmpty(peer.GameVersion) ? "?" : peer.GameVersion) + ".");
             NotifyPeerJoined(peer);
 
             // Surface a "joined" system line to everyone — the clients over the wire and

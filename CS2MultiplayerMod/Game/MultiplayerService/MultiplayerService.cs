@@ -321,7 +321,9 @@ namespace CS2MultiplayerMod.Game
             _lastAutoRecoveryMs = now;
             Diagnostics.SyncLog.Event(LogTopic.Session,
                 "World sync: reloading this city from the host now (" + report.Summary() + ").");
-            _session.RequestWorldSync(report.Reason);
+            // Include the subject in the existing bounded reason field: host-only logs must
+            // identify which inbox/operation failed on the client.
+            _session.RequestWorldSync(report.Reason + " [" + report.Subject + "]");
         }
 
         // ---- Chat log (in-game hub panel) --------------------------------------

@@ -88,7 +88,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         };
                     }
                     _sentSpawn++;
-                    SyncLog.Detail(LogTopic.Buildings, "GrowableSync capture: grew '" + name +
+                    SyncLog.Trace(LogTopic.Buildings, "GrowableSync capture: grew '" + name +
                         "' at " + Format(transform.m_Position) + " seed=" + seed + " seq=" +
                         command.Sequence + ".");
                 }
@@ -138,7 +138,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     };
                     Send(session, command);
                     _sentRemove++;
-                    SyncLog.Detail(LogTopic.Buildings, "GrowableSync capture: retired '" + name +
+                    SyncLog.Trace(LogTopic.Buildings, "GrowableSync capture: retired '" + name +
                         "' at " + Format(transform.m_Position) + " seq=" + command.Sequence + ".");
                 }
             }
@@ -221,7 +221,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         Speed = command.ConstructionSpeed,
                     };
                     _sentLevel++;
-                    SyncLog.Detail(LogTopic.Buildings, "GrowableSync capture: level change to '" +
+                    SyncLog.Trace(LogTopic.Buildings, "GrowableSync capture: level change to '" +
                         name + "' at " + Format(transform.m_Position) + " seq=" + command.Sequence +
                         ".");
                 }

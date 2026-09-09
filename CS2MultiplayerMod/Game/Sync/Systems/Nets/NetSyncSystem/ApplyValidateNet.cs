@@ -101,12 +101,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     if (isLane && !ValidateLaneOriginal(temp, out reason)) return false;
                     if (isArea && !ValidateAreaEntity(entity, temp, out reason)) return false;
 
-                    bool missingReplacementOriginal =
-                        isEdge && (temp.m_Flags & (TempFlags.Replace | TempFlags.Combine)) != 0 ||
-                        isLane && (temp.m_Flags & TempFlags.Replace) != 0;
+                    bool missingReplacementOriginal = Infrastructure.NativeReplacementPolicy.RequiresOriginal(
+                        isEdge, isLane, (temp.m_Flags & TempFlags.Delete) != 0,
+                        (temp.m_Flags & TempFlags.Cancel) != 0,
+                        (temp.m_Flags & TempFlags.Replace) != 0,
+                        (temp.m_Flags & TempFlags.Combine) != 0);
                     if (missingReplacementOriginal && temp.m_Original == Entity.Null)
                     {
-                        reason = "a generated replacement has no original entity";
+                        reason = "a generated replacement has no original entity (entity=" + entity +
+                            ", shape=" + (isEdge ? "edge" : "lane") + ", flags=" + temp.m_Flags + ")";
                         return false;
                     }
                 }

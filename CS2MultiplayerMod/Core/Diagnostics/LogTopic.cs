@@ -3,11 +3,10 @@ namespace CS2MultiplayerMod.Core.Diagnostics
     /// <summary>
     /// What a log line is about.
     ///
-    /// Every line the mod writes names one of these, and each one can be switched on by itself.
-    /// That is the whole point: a player chasing "roads do not appear on my partner's screen"
-    /// turns on <see cref="Nets"/> and gets a log about roads, instead of a general "debug"
-    /// switch that buries the one interesting line under twenty thousand others. A log nobody
-    /// can read is a log nobody reads.
+    /// Every line the mod writes names one of these. It is what a reader greps a log for
+    /// ("[nets]"), and what a developer build narrows the detail down to when chasing one bug
+    /// (see the game layer's LogTopics). The player has a single switch: which subsystem is at
+    /// fault is the answer to the bug report, not a question to put to the person filing it.
     ///
     /// The topics are named after the thing that went wrong from the player's side, not after
     /// the class that noticed it - "my transit lines are missing" is <see cref="Routes"/>, and

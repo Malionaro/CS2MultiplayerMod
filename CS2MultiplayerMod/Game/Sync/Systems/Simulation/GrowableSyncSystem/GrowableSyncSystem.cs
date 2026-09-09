@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Game;
 using Game.Buildings;
@@ -60,9 +59,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private const long ReplayWindowMs = 120000;
 
         /// <summary>
-        /// Realizes per frame. The game itself never grows more than three buildings per spawner
-        /// update, so a backlog this size only ever appears after a stall - and draining it flat out
-        /// would spike the frame it drains on.
+        /// Structural lifecycle work per frame. Routine condition/progress samples have their
+        /// own budget and coalesce at ingress; they must not compete with building creation.
         /// </summary>
         private const int MaxRealizePerFrame = 8;
 
@@ -79,8 +77,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>Cap on the host's level-change memory, so a long session cannot grow it without bound.</summary>
         private const int MaxTrackedLevelChanges = 4096;
 
-        private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
-            new ConcurrentQueue<SimulationCommandMessage>();
+        private readonly GrowableCommandInbox _incoming = new GrowableCommandInbox();
 
         /// <summary>Idempotence: a redelivered command must not build a second house.</summary>
         private readonly OperationReplayWindow<uint> _applied = new OperationReplayWindow<uint>();
@@ -164,9 +161,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private long _lastStatsMs;
         private long _lastPlayerPlacedPruneMs;
 
-        // Counters behind the periodic summary. Individual events are logged at verbose level; the
-        // summary is what a normal log carries, so a desync report always shows the shape of the
-        // traffic even when verbose logging was off.
+        // Counters behind the periodic summary. Individual events are breadcrumbs in the flight
+        // log; the summary is what the readable log carries, so a desync report always shows the
+        // shape of the traffic without one line per building.
         private int _sentSpawn, _sentLevel, _sentRemove, _sentState;
         private int _gotSpawn, _gotLevel, _gotRemove, _gotState;
         private int _duplicates, _conflicts, _unmatched, _unknownPrefab, _rejectedLocal;
@@ -177,7 +174,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private ObjectSearch _objectSearch;
         private BuildSyncSystem _buildSync;
         private DeleteSyncSystem _deleteSync;
-        private CommandObserver _observer;
+        private GrowableObserver _observer;
 
         private EntityQuery _createdBuildings;
         private EntityQuery _deletedBuildings;
@@ -233,10 +230,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             });
 
             _observer = SyncObserverBinding.Bind(
-                () => new CommandObserver(_incoming, GrowableLifecycleCommand.Id)
-                    {
-                        MaxBodyBytes = GrowableLifecycleCommand.MaxEncodedBytes,
-                    },
+                () => new GrowableObserver(_incoming, Mod.Service.Session),
                 DrainQueue);
         }
 
@@ -249,7 +243,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void DrainQueue()
         {
-            if (!_incoming.IsEmpty) SyncInbox.Clear(_incoming);
+            _incoming.Clear();
             _selfRealized.Clear();
             _pendingStateCorrections.Clear();
             _pendingStateSequences.Clear();
@@ -411,13 +405,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (now - _lastStatsMs < 30000) return;
             _lastStatsMs = now;
 
+            long coalesced = _incoming.TakeCoalescedCount();
             if (_gotSpawn + _gotLevel + _gotRemove + _gotState + _duplicates + _conflicts +
-                _unmatched + _unknownPrefab + _rejectedLocal + _repairedPrefabs == 0) return;
+                _unmatched + _unknownPrefab + _rejectedLocal + _repairedPrefabs == 0 && coalesced == 0) return;
             SyncLog.Detail(LogTopic.Buildings, "GrowableSync/30s client: spawn=" + _gotSpawn +
                 " level=" + _gotLevel + " remove=" + _gotRemove + " state=" + _gotState +
                 " duplicate=" + _duplicates + " conflict=" + _conflicts + " unmatched=" + _unmatched +
                 " unknownPrefab=" + _unknownPrefab + " rejectedLocal=" + _rejectedLocal +
-                " prefabRepairs=" + _repairedPrefabs + ".");
+                " prefabRepairs=" + _repairedPrefabs + " inbox=" + _incoming.Count +
+                " coalesced=" + coalesced + ".");
             _gotSpawn = _gotLevel = _gotRemove = _gotState = 0;
             _duplicates = _conflicts = _unmatched = _unknownPrefab = _rejectedLocal = 0;
             _repairedPrefabs = 0;

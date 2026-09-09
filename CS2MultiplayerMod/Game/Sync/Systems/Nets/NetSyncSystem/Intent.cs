@@ -38,7 +38,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 _cachedLocalCourses.Clear();
                 _cachedLocalMixedOperation.Clear();
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 return;
             }
 
@@ -56,7 +56,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 _cachedLocalCourses.Clear();
                 _cachedLocalMixedOperation.Clear();
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 return;
             }
 
@@ -174,7 +174,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     _cachedLocalCourses.Clear();
                     _cachedLocalMixedOperation.Clear();
                     _cachedFallbackOriginalEdges.Clear();
-                    _cachedNeedsFinalEdgeFallback = false;
+                    _cachedMixedRejection = null;
                 }
                 return;
             }
@@ -184,7 +184,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             if (rejection == null && mutations == 0)
             {
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 _cachedLocalCourses.AddRange(next);
                 return;
             }
@@ -194,7 +194,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 // This is one native Apply, not a delete followed by replacements followed by
                 // placements. Retain the exact definition order and send it through one envelope.
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 _cachedLocalMixedOperation.AddRange(mixed);
                 SyncLog.Trace(LogTopic.Nets, "net atomic mixed capture cached items=" + mixed.Count +
                     " placements=" + next.Count + " mutations=" + mutations +
@@ -207,7 +207,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             // Suppress all legacy echoes for this Apply and repair from an authoritative snapshot.
             _cachedFallbackOriginalEdges.Clear();
             _cachedFallbackOriginalEdges.AddRange(rejectedOriginalEdges);
-            _cachedNeedsFinalEdgeFallback = true;
+            _cachedMixedRejection = rejection;
 
             SyncLog.Warn(LogTopic.Nets,
                 "NetSync: local mixed net operation cannot be encoded atomically (" + rejected +
@@ -276,18 +276,22 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             }
             if (_cachedLocalCourses.Count == 0)
             {
-                if (!_cachedNeedsFinalEdgeFallback) return;
+                if (!HasUnrepresentableMixedOperation) return;
                 RecordPlacementOriginals(service.NowMs);
                 _atomicMixedOriginals.Clear();
                 _atomicMixedOriginalsFrame = _realizeFrame;
                 for (int i = 0; i < _cachedFallbackOriginalEdges.Count; i++)
                     _atomicMixedOriginals.Add(_cachedFallbackOriginalEdges[i]);
-                service.RequestAutomaticWorldRecovery(
-                    "mixed road operation could not be encoded atomically");
+                service.RequestAutomaticWorldRecovery(ResyncReport.Create(
+                    "mixed road operation could not be encoded atomically", "net",
+                    ResyncEvidence.StreamLoss).About(_cachedMixedRejection ?? "local mixed operation")
+                    .Tried("captured the entire native Apply before publishing any member")
+                    .Fact("unrepresented course", _cachedMixedRejection)
+                    .Fact("original edges", _cachedFallbackOriginalEdges.Count));
                 SyncLog.Trace(LogTopic.Nets, "net mixed capture rejected; recovery requested" +
                     (barrierRecovery ? " source=barrier" : string.Empty));
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 _nativeApplyCapturedFrame = _realizeFrame;
                 _atomicMixedApplyCapturedFrame = _realizeFrame;
                 return;
@@ -455,7 +459,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 _cachedLocalMixedOperation.Clear();
                 _cachedLocalCourses.Clear();
                 _cachedFallbackOriginalEdges.Clear();
-                _cachedNeedsFinalEdgeFallback = false;
+                _cachedMixedRejection = null;
                 _nativeApplyCapturedFrame = _realizeFrame;
                 _atomicMixedApplyCapturedFrame = _realizeFrame;
             }

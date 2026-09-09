@@ -51,9 +51,62 @@ namespace CS2MultiplayerMod
         public static MultiplayerService Service;
 
         /// <summary>
-        /// The version this build reports - to the log, and to a peer during the handshake.
+        /// The version this build reports to the log, the flight log and the options screen -
+        /// the published one, hotfix suffix and all. What a peer is shown is
+        /// <see cref="CompatibilityVersion"/>.
+        ///
+        /// Read from the informational version, which the build stamps from
+        /// Properties/PublishConfiguration.xml (see the csproj): that is the number the store
+        /// shows and the one a player quotes in a report. The assembly version is only the
+        /// fallback - it stays 1.0.0.0 across releases, so while it was the source every build
+        /// called itself the same thing and the handshake's version check could never fire.
         /// </summary>
-        private static string Version => typeof(Mod).Assembly.GetName().Version.ToString();
+        internal static string Version => _version ?? (_version = ReadVersion());
+
+        /// <summary>
+        /// The version a peer is compared against: the numeric release part of
+        /// <see cref="Version"/>, so "0.1.6.1h1" meets "0.1.6.1". A hotfix suffix marks a build
+        /// that changed nothing the two machines have to agree on - the wire, the prefabs and the
+        /// simulation are the release's - so those two still play together, while a different
+        /// release is refused (the host can still admit it: IgnoreModCompatibilityChecks).
+        /// </summary>
+        internal static string CompatibilityVersion =>
+            _compatibilityVersion ?? (_compatibilityVersion = ReleasePart(Version));
+
+        private static string _version;
+        private static string _compatibilityVersion;
+
+        /// <summary>The leading digits-and-dots of a version, without a trailing dot.</summary>
+        private static string ReleasePart(string version)
+        {
+            if (string.IsNullOrEmpty(version)) return version;
+            int end = 0;
+            while (end < version.Length && (char.IsDigit(version[end]) || version[end] == '.')) end++;
+            while (end > 0 && version[end - 1] == '.') end--;
+            return end > 0 ? version.Substring(0, end) : version;
+        }
+
+        private static string ReadVersion()
+        {
+            try
+            {
+                var stamped = (System.Reflection.AssemblyInformationalVersionAttribute)
+                    System.Attribute.GetCustomAttribute(typeof(Mod).Assembly,
+                        typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+                if (stamped != null && !string.IsNullOrEmpty(stamped.InformationalVersion))
+                {
+                    // A build that has SourceLink or a revision id appends "+<sha>"; these strings
+                    // are read and compared, so keep only the part a human would call a version.
+                    string text = stamped.InformationalVersion;
+                    int plus = text.IndexOf('+');
+                    if (plus > 0) text = text.Substring(0, plus);
+                    if (text.Length > 0) return text;
+                }
+            }
+            catch { /* fall through to the assembly version */ }
+
+            return typeof(Mod).Assembly.GetName().Version.ToString();
+        }
 
         public void OnLoad(UpdateSystem updateSystem)
         {
@@ -329,7 +382,8 @@ namespace CS2MultiplayerMod
             // decide whether two players can even play together.
             SyncLog.Event(LogTopic.Startup, "Loaded: mod v" + Version + ", protocol v" +
                 ProtocolConstants.ProtocolVersion + ", game v" + UnityEngine.Application.version +
-                ", sync systems registered.");
+                ", sync systems registered, verbose logging " +
+                (Setting != null && Setting.VerboseLogging ? "on" : "off") + ".");
         }
 
         public void OnDispose()

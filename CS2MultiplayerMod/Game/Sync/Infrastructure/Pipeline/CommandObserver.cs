@@ -58,7 +58,7 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
                         .Tried("nothing - the command exceeded its size cap and was refused at the door"));
                     return;
                 }
-                SyncInbox.Push(_sink, command, QueueCap);
+                SyncInbox.Push(_sink, command, QueueCap, "command " + command.CommandId);
                 return;
             }
         }

@@ -122,6 +122,17 @@ namespace CS2MultiplayerMod.Game
             return names.Length == 0 ? "" : FaultMarker + " " + NamesText(names);
         }
 
+        /// <summary>
+        /// The other live mods for a session log line: <c>none</c>, or the names in brackets.
+        /// Recorded whether or not they block anything - with the compatibility check bypassed
+        /// they are the first thing to suspect in a desync, so the log has to say they were there.
+        /// </summary>
+        public static string Summary()
+        {
+            string[] names = OtherModNames;
+            return names.Length == 0 ? "none" : "[" + NamesText(names) + "]";
+        }
+
         /// <summary>Comma-separated names, truncated to <see cref="MaxNamesListed"/>.</summary>
         private static string NamesText(string[] names)
         {
@@ -337,9 +348,11 @@ namespace CS2MultiplayerMod.Game
         }
 
         /// <summary>
-        /// Reports the set only when it changes. Rare enough to log at info level, and it is
-        /// the first thing to look at when a player says the block is naming a mod they have
-        /// already turned off: it says which source is speaking.
+        /// Reports the set whenever it changes, ungated: which other mods were live is one of the
+        /// few facts every bug report needs, and with the compatibility check bypassed the mod
+        /// that broke the session is in this list rather than in ours. Rare enough for an event -
+        /// it only fires when the set actually changes - and it names the source it read, which
+        /// is what a player needs when the block names a mod they have already turned off.
         /// </summary>
         private static void LogChange(string[] previous, string[] current)
         {
@@ -352,9 +365,11 @@ namespace CS2MultiplayerMod.Game
             }
 
             string source = _restartRequired ? "loaded assemblies (restart to clear)" : "active playset";
-            SyncLog.Detail(LogTopic.Startup,
-                current.Length == 0 ? "No other mods detected - multiplayer is available." : "Other mods block multiplayer, from " +
-                source + ": " + string.Join(", ", current));
+            SyncLog.Event(LogTopic.Startup,
+                current.Length == 0
+                    ? "No other mods are active - multiplayer is available."
+                    : "Other mods are active, from the " + source + ": " +
+                      string.Join(", ", current) + ".");
         }
 
         private static void WarnOnce(string source, Exception ex)

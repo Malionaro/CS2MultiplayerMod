@@ -34,7 +34,8 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         private static int _resyncPending;
         private static ResyncReport _resyncReport;
 
-        public static bool Push<T>(ConcurrentQueue<T> queue, T item, int cap = DefaultCap)
+        public static bool Push<T>(ConcurrentQueue<T> queue, T item, int cap = DefaultCap,
+            string subject = null)
         {
             if (queue == null) throw new ArgumentNullException(nameof(queue));
             if (cap <= 0) throw new ArgumentOutOfRangeException(nameof(cap));
@@ -48,13 +49,13 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
             // Nothing local can supply them again, so this is not a wait-and-see.
             RequestResync(ResyncReport
                 .Create("sync inbox overflow", "stream", ResyncEvidence.StreamLoss)
-                .About("inbox cap " + cap)
+                .About(subject ?? "inbox " + typeof(T).Name + " cap " + cap)
                 .Fact("queue cap", cap)
                 .Tried("shed the incomplete queued suffix rather than applying dependent work " +
                        "without the command it depends on"));
             Action<string> warn = LogWarn;
             if (warn != null)
-                warn("Sync inbox overflowed; cleared the incomplete command suffix and " +
+                warn("Sync inbox " + (subject ?? typeof(T).Name) + " overflowed; cleared the incomplete command suffix and " +
                      "requested a fresh world sync.");
             return false;
         }

@@ -9,8 +9,9 @@ namespace CS2MultiplayerMod.Game.Diagnostics
     /// The mod's logger. Everything the mod writes goes through here - there is no second way in.
     ///
     /// <b>A line belongs to a feature, not to a "debug" switch.</b> Every call names a
-    /// <see cref="LogTopic"/>, and each topic is switched on by itself, so a player chasing one
-    /// problem gets a log about that problem rather than everything at once. Asking
+    /// <see cref="LogTopic"/>, which is what a reader greps for and what a developer narrows a log
+    /// down to (see <see cref="LogTopics"/>). The player has one switch, not one per topic: asking
+    /// them which subsystem broke is asking them to diagnose the bug they are reporting. Asking
     /// <see cref="IsEnabled"/> is a field read, so a caller can and should ask before building the
     /// string: a diagnostic nobody reads must not cost a frame.
     ///
@@ -21,9 +22,9 @@ namespace CS2MultiplayerMod.Game.Diagnostics
     ///
     /// <list type="table">
     ///   <item><term><see cref="Detail"/></term><description>troubleshooting chatter; both logs,
-    ///     but only while its topic is on.</description></item>
+    ///     but only while verbose logging is on.</description></item>
     ///   <item><term><see cref="Trace"/></term><description>a compact breadcrumb; always in the
-    ///     flight log, in the game log only while its topic is on.</description></item>
+    ///     flight log, in the game log only for a developer build.</description></item>
     ///   <item><term><see cref="Event"/></term><description>a milestone; both logs,
     ///     always.</description></item>
     ///   <item><term><see cref="Warn"/>, <see cref="Error"/></term><description>something went
@@ -69,7 +70,8 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         };
 
         /// <summary>
-        /// Whether a <see cref="Detail"/> line on this topic would be written anywhere.
+        /// Whether a <see cref="Detail"/> line on this topic would be written anywhere: the
+        /// player's verbose switch turns on every topic, and a build can name single ones.
         ///
         /// Ask before <i>computing</i> a diagnostic, not only before logging one. Warnings, errors
         /// and events do not consult this and must not be guarded by it - guarding a fault behind
@@ -77,9 +79,9 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         /// </summary>
         public static bool IsEnabled(LogTopic topic)
         {
+            if (LogTopics.DetailEnabled(topic)) return true;
             Setting setting = Mod.Setting;
-            if (setting == null) return false;
-            return setting.VerboseLogging || setting.IsTopicEnabled(topic);
+            return setting != null && setting.VerboseLogging;
         }
 
         /// <summary>
@@ -96,7 +98,7 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         // ---- Gated: troubleshooting detail ------------------------------------------------
 
         /// <summary>
-        /// One line of troubleshooting detail, written only while its topic is switched on.
+        /// One line of troubleshooting detail, written only while verbose logging is on.
         ///
         /// This is where the per-action, per-entity and per-interval chatter belongs. Pass a plain
         /// sentence: the topic tag is added here.
@@ -119,8 +121,9 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         }
 
         /// <summary>
-        /// A breadcrumb: always recorded to the flight log, shown in the game log only while the
-        /// topic is on.
+        /// A breadcrumb: always recorded to the flight log, and in the game log only while a build
+        /// asks for the topic (see <see cref="LogTopics"/>) - not under verbose logging, where the
+        /// per-command traces outnumber everything a reader is actually looking for.
         ///
         /// This is the tier for the compact <c>key=value</c> traces the sync pipeline leaves as it
         /// works - "operation dropped malformed", "target retrying", "graph matched". Individually
@@ -134,7 +137,7 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         public static void Trace(LogTopic topic, string message)
         {
             if (message == null) return;
-            if (IsEnabled(topic))
+            if (LogTopics.TraceInGameLog(topic))
             {
                 try { Mod.log.Info(Tag(topic) + " " + LogPaths.Redact(message)); }
                 catch { }
@@ -144,7 +147,7 @@ namespace CS2MultiplayerMod.Game.Diagnostics
 
         /// <summary>
         /// Detail about the part of the city a piece of work belongs to. The company channel serves
-        /// three zones from one code path, so the zone - not the class - picks the reader's switch.
+        /// three zones from one code path, so the zone - not the class - names the line's topic.
         /// </summary>
         public static void DetailZone(SyncZone zone, string message)
         {

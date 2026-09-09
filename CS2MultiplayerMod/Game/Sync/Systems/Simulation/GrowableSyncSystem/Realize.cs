@@ -79,7 +79,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             // the command as much as against a relay that echoes it back.
             if (session.Role == SessionRole.Host)
             {
-                if (!_incoming.IsEmpty) SyncInboxDrop(session.LocalPlayerId);
+                _incoming.Clear();
                 return;
             }
 
@@ -91,19 +91,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _applied.Prune(now);
             RetryPendingStateCorrections(now);
 
-            int realized = 0;
-            SimulationCommandMessage message;
-            while (realized < MaxRealizePerFrame && _incoming.TryDequeue(out message))
+            int realized = 0, states = 0;
+            // Bound attempts, including rejected/duplicate work: lookups and validation
+            // consume frame time even when no entity is changed.
+            GrowableLifecycleCommand command;
+            while (_incoming.TryTake(realized < MaxRealizePerFrame,
+                       states < Infrastructure.GrowableCommandInbox.StateBudgetPerFrame, out command))
             {
-                GrowableLifecycleCommand command;
-                try { command = GrowableLifecycleCommand.Decode(message.Body); }
-                catch (System.Exception ex)
-                {
-                    SyncLog.Warn(LogTopic.Buildings,
-                        "GrowableSync: dropping malformed command from player " +
-                        message.OriginPlayerId + ": " + ex.Message);
-                    continue;
-                }
+                if (command.Op == GrowableLifecycleCommand.OpState) states++;
+                else realized++;
 
                 if (_applied.Contains(command.Sequence, now))
                 {
@@ -114,7 +110,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     continue;
                 }
 
-                if (Apply(command, now)) realized++;
+                // A newer lifecycle/state command supersedes corrections still waiting for
+                // this lot. Otherwise an old construction sample can overwrite completion.
+                SupersedePendingState(command, now);
+                Apply(command, now);
             }
 
             ReportClientStats(now);
@@ -405,6 +404,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 _pendingStateSequences.Remove(pending.Command.Sequence);
                 _pendingStateCorrections.RemoveAt(i);
                 ApplyState(pending.Command, now, false);
+            }
+        }
+
+        private void SupersedePendingState(GrowableLifecycleCommand command, long now)
+        {
+            for (int i = _pendingStateCorrections.Count - 1; i >= 0; i--)
+            {
+                GrowableLifecycleCommand previous = _pendingStateCorrections[i].Command;
+                if (!Infrastructure.GrowableCommandInbox.SameTarget(previous, command)) continue;
+                _pendingStateCorrections.RemoveAt(i);
+                _pendingStateSequences.Remove(previous.Sequence);
+                _applied.Remember(previous.Sequence, now, ReplayWindowMs);
             }
         }
 

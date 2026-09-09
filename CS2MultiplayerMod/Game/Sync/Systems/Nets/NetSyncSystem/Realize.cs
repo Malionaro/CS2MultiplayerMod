@@ -336,17 +336,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                             return;
                         }
 
-                        // Preserve the source NetCourse length exactly, but reject a forged or
-                        // corrupt scalar that materially disagrees with the transmitted curve.
-                        float lengthTolerance = math.max(0.05f, measuredLength * 0.01f);
-                        if (math.abs(command.Length - measuredLength) > lengthTolerance)
+                        // NetCourse length is generator state, not a checksum of the final curve.
+                        // Native trimming/profile adjustments can change one without the other.
+                        // Apply a broad sanity bound, then replay the source length intact.
+                        if (!NativeCourseLengthPolicy.IsPlausible(command.Length, measuredLength, nativePoint))
                         {
                             SyncLog.Warn(LogTopic.Nets, "NetSync: native operation " +
                                 command.OperationId +
-                                " has an inconsistent course length; dropping the whole operation.");
+                                " has an implausible course length; dropping the whole operation.");
                             ReportRefusedNativeOperation(command, i, work.Count,
-                                "a course length that disagrees with its own curve",
-                                "sent " + command.Length.ToString("F3") + " m, the curve measures " +
+                                "an implausible native course length",
+                                "sent " + command.Length.ToString("F3") + " m, curve measures " +
                                 measuredLength.ToString("F3") + " m");
                             return;
                         }

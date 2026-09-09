@@ -214,23 +214,5 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                    EntityManager.HasComponent<WaterConsumer>(building);
         }
 
-        /// <summary>
-        /// Drain rather than apply: applying would duplicate the building the host already has.
-        ///
-        /// The host's own send loops back through the local observers, so nearly everything drained
-        /// here is the host's own echo - routine, and the same thing every other sync system skips
-        /// on <c>OriginPlayerId</c>. Only a command another player authored is worth a warning; it
-        /// means a peer is authoring zoned buildings it has no authority over.
-        /// </summary>
-        private void SyncInboxDrop(int localPlayerId)
-        {
-            int foreign = 0;
-            SimulationCommandMessage message;
-            while (_incoming.TryDequeue(out message))
-                if (message.OriginPlayerId != localPlayerId) foreign++;
-            if (foreign == 0) return;
-            SyncLog.Warn(LogTopic.Buildings, "GrowableSync: host discarded " + foreign +
-                " zoned-building command(s) from another player; only a host may author them.");
-        }
     }
 }

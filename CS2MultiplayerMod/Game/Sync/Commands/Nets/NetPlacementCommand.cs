@@ -90,6 +90,8 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
         public float Bx, By, Bz;
         public float Cx, Cy, Cz;
         public float Dx, Dy, Dz;
+        // Native generator length can differ from the final curve's measured arc length.
+        // Preserve it independently, including for trimmed and height-adjusted courses.
         public float Length;
 
         public int RandomSeed;

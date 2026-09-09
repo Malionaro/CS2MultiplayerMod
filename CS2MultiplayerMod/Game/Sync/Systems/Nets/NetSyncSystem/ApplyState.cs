@@ -193,7 +193,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         // The sender then suppresses every fragmented lifecycle echo and requests world recovery;
         // sending a reduced delete/replace/place sequence would recreate the original ordering bug.
         private readonly List<Entity> _cachedFallbackOriginalEdges = new List<Entity>();
-        private bool _cachedNeedsFinalEdgeFallback;
+        private string _cachedMixedRejection;
+        private bool HasUnrepresentableMixedOperation => _cachedMixedRejection != null;
         private long _nextLocalNetOperationId = 1;
         private int _nativeApplyCapturedFrame = -1;
         private int _atomicMixedApplyCapturedFrame = -1;

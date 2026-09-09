@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <Configurations>Debug;Release</Configurations>
@@ -21,6 +21,19 @@
     <PropertyGroup Condition="'$(MpDevTrace)' == 'true'">
         <DefineConstants>$(DefineConstants);MP_DEV_TRACE</DefineConstants>
     </PropertyGroup>
+
+    <!--The mod's real version lives in PublishConfiguration.xml - it is what the store shows and
+    what a player quotes in a report. Stamp it into the assembly so the log and the handshake can
+    report it: the assembly version stays 1.0.0.0 across releases, so while that was the source
+    every build introduced itself as the same version to its peer.-->
+    <Target Name="StampModVersion" BeforeTargets="GetAssemblyAttributes;GenerateAssemblyInfo">
+        <XmlPeek XmlInputPath="$(PublishConfigurationPath)" Query="/Publish/ModVersion/@Value">
+            <Output TaskParameter="Result" PropertyName="PublishedModVersion"/>
+        </XmlPeek>
+        <PropertyGroup Condition="'$(PublishedModVersion)' != ''">
+            <InformationalVersion>$(PublishedModVersion)</InformationalVersion>
+        </PropertyGroup>
+    </Target>
 
     <!--Imports must be after PropertyGroup block-->
     <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.User'))\Mod.props"/>

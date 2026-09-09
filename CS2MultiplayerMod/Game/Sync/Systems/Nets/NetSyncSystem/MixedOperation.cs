@@ -283,10 +283,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 bool point = measuredLength < NetPlacementCommand.MinCourseLength &&
                              (placement.Start.Flags & pointFlags) == pointFlags &&
                              (placement.End.Flags & pointFlags) == pointFlags;
-                if (!math.isfinite(measuredLength) ||
-                    (measuredLength < NetPlacementCommand.MinCourseLength && !point) ||
-                    math.abs(placement.Length - measuredLength) >
-                    math.max(0.05f, measuredLength * 0.01f))
+                if (!NativeCourseLengthPolicy.IsPlausible(placement.Length, measuredLength, point))
                 {
                     failure = "placement course geometry is invalid";
                     deterministicFailure = true;

@@ -177,6 +177,29 @@ namespace CS2MultiplayerMod.Game
             return true;
         }
 
+        /// <summary>
+        /// This build for the host and join lines: the version a player quotes, plus the shorter
+        /// string the peers actually compare when a hotfix suffix makes the two differ.
+        /// </summary>
+        private static string ModVersionText(MultiplayerConfig config)
+        {
+            return " mod=" + Mod.Version +
+                   (string.Equals(Mod.Version, config.ModVersion, StringComparison.Ordinal)
+                       ? "" : " compat=" + config.ModVersion);
+        }
+
+        /// <summary>
+        /// What else was running when this session started, for the host and join lines. Only this
+        /// machine's own mods: the check is local and nothing about them crosses the wire, so a
+        /// desync report is read from both players' logs side by side.
+        /// </summary>
+        private static string LocalModsText(Setting settings)
+        {
+            bool bypassed = settings != null && settings.IgnoreModCompatibilityChecks;
+            return " otherMods=" + ModsCheck.Summary() +
+                   " modChecks=" + (bypassed ? "bypassed" : "enforced");
+        }
+
         public void HostFromSettings(Setting settings)
         {
             if (!ModEnabled) { _log.Warn(LogTopic.Session, "Cannot host: the mod is disabled in settings."); return; }
@@ -191,8 +214,9 @@ namespace CS2MultiplayerMod.Game
                 (config.Transport == TransportMode.SteamRelay ? " joinCode=" + RelayProvider.LocalJoinCode : " port=" + config.Port) +
                 " lanOnly=" + config.LanOnly + " password=" +
                 (config.Password.Length > 0 ? "SET" : "NONE") + " maxPlayers=" + config.MaxPlayers +
-                " name='" + config.PlayerName + "'" + " mod=" + config.ModVersion + " game=" +
-                config.GameVersion + " dlcs=[" + string.Join(", ", config.DlcList) + "]");
+                " name='" + config.PlayerName + "'" + ModVersionText(config) + " game=" +
+                config.GameVersion + " dlcs=[" + string.Join(", ", config.DlcList) + "]" +
+                LocalModsText(settings));
             _session.StartHost(config);
         }
 
@@ -210,8 +234,9 @@ namespace CS2MultiplayerMod.Game
                 " target=" +
                 (config.Transport == TransportMode.SteamRelay ? config.JoinCode : config.HostAddress + ":" + config.Port) +
                 " password=" + (config.Password.Length > 0 ? "SET" : "NONE") + " name='" +
-                config.PlayerName + "'" + " mod=" + config.ModVersion + " game=" +
-                config.GameVersion + " dlcs=[" + string.Join(", ", config.DlcList) + "]");
+                config.PlayerName + "'" + ModVersionText(config) + " game=" +
+                config.GameVersion + " dlcs=[" + string.Join(", ", config.DlcList) + "]" +
+                LocalModsText(settings));
             SetPhase(ClientWorldPhase.Connecting);
             _session.Join(config);
         }
@@ -320,7 +345,10 @@ namespace CS2MultiplayerMod.Game
                 maxPlayers = DefaultMaxPlayers;
             }
 
-            string modVersion = typeof(Mod).Assembly.GetName().Version.ToString();
+            // The release part, not the full version: see Mod.CompatibilityVersion. The host and
+            // join lines print both whenever they differ, so a refused join can be matched to the
+            // build that sent it.
+            string modVersion = Mod.CompatibilityVersion;
             string gameVersion;
             try { gameVersion = UnityEngine.Application.version; }
             catch (Exception) { gameVersion = ""; }

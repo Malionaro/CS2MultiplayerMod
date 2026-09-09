@@ -58,7 +58,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (!ownedUpgrades && IsSimulationOwnedLifecycle(prefab) &&
                         !_toolDeleteOriginals.Contains(entity))
                     {
-                        SyncLog.Detail(LogTopic.Buildings,
+                        SyncLog.Trace(LogTopic.Buildings,
                             "DeleteSync: not replicating simulation-owned removal of '" + name +
                             "'.");
                         continue;

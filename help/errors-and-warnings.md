@@ -290,7 +290,7 @@ Include:
 
 You do not have to switch anything on first. Connects, disconnects, world transfers, resyncs, dropped actions and every fault are logged whatever your settings are.
 
-If you are asked for more detail, the mod's **Logging** options tab has one switch per feature - Session, Connection, World Transfer, Resync, Roads & Networks, Buildings & Objects and so on. Turn on the one that matches the problem, or **Log Everything** if you are not sure, then reproduce the problem and send the file again.
+If you are asked for more detail, turn on **Verbose Logging** on the mod's **General** options tab, reproduce the problem and send the file again. It adds the per-action detail underneath the events above; it makes the log longer, not the game slower.
 
 Never post a session password. Network addresses and profile paths are redacted by the mod where it controls the log line, but review files before sharing them publicly.
 

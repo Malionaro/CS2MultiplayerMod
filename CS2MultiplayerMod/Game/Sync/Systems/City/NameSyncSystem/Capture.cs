@@ -305,7 +305,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 return;
             }
             session.SendCommand(0, EntityNameCommand.Id, body);
-            SyncLog.Detail(LogTopic.City, "NameSync captured " + what + " on " +
+            SyncLog.Trace(LogTopic.City, "NameSync captured " + what + " on " +
                 KindName(command.TargetKind) + " '" + command.TargetPrefabName + "'.");
         }
 

@@ -37,6 +37,16 @@ namespace CS2MultiplayerMod.Core.Session
         /// <summary>Host-side: the one-time nonce sent in this peer's handshake challenge.</summary>
         public byte[] ChallengeNonce;
 
+        /// <summary>
+        /// What this peer said it was running, from its handshake. Kept so the ungated accept
+        /// line can name it: a desync report is read from two machines' logs, and "which build
+        /// was the other player on" is the first thing it has to answer. Null until handshaked.
+        /// </summary>
+        public string ModVersion;
+
+        /// <summary>The peer's game version, for the same reason as <see cref="ModVersion"/>.</summary>
+        public string GameVersion;
+
         /// <summary>Host-side: traffic budgets for everything this peer sends.</summary>
         public readonly PeerRateLimiter RateLimiter = new PeerRateLimiter();
 

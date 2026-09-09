@@ -49,6 +49,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private readonly Dictionary<string, int> _diag = new Dictionary<string, int>();
         private long _diagStartMs = -1;
+
+        /// <summary>
+        /// How long the placement counters accumulate before one summary line. 30 s to match every
+        /// other heartbeat in the mod: at 5 s this was two hundred lines an hour on its own, and
+        /// nothing here is read for its timing - it is read for the shape of the traffic.
+        /// </summary>
+        private const long DiagIntervalMs = 30000;
         private int _diagTotal;
 
         // Commands refused because their prefab belongs to simulation spawning rather than
@@ -421,13 +428,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void FlushDiagnostics(long now, bool connected)
         {
             if (_diagStartMs < 0) { _diagStartMs = now; return; }
-            if (now - _diagStartMs < 5000) return;
+            if (now - _diagStartMs < DiagIntervalMs) return;
 
             // Only log when something is happening, to avoid spamming an idle main menu.
             if (connected || _hbAnyCreated > 0 || _diagTotal > 0)
             {
                 var sb = new StringBuilder();
-                sb.Append("BuildSync/5s: updates=").Append(_hbUpdates)
+                sb.Append("BuildSync/30s: updates=").Append(_hbUpdates)
                   .Append(" created[any/+prefab/+transform/filtered]=")
                   .Append(_hbAnyCreated).Append('/').Append(_hbCreatedPrefab).Append('/')
                   .Append(_hbCreatedTransform).Append('/').Append(_hbFiltered)
@@ -451,7 +458,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 var sb = new StringBuilder();
                 sb.Append("BuildSync realize: refused ").Append(_refusedTotal)
-                  .Append(" simulation-only placement(s) in the last 5s [");
+                  .Append(" simulation-only placement(s) in the last 30s [");
                 int n = 0;
                 foreach (KeyValuePair<string, int> pair in _refused)
                 {

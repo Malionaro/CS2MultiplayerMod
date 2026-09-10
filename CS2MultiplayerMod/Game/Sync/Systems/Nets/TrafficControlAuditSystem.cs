@@ -210,11 +210,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     current.LastBypassLogMs = known.LastBypassLogMs;
                     _observed[entity] = current;
 
-                    if (now - known.LastBypassLogMs < BypassLogCooldownMs) continue;
+                    // 0 means "never logged": without the guard the first bypass of a
+                    // session started within 60 s of the service clock would be
+                    // throttled away and never counted, faking a quiet audit.
+                    if (known.LastBypassLogMs != 0 &&
+                        now - known.LastBypassLogMs < BypassLogCooldownMs) continue;
 
-                    known = _observed[entity];
-                    known.LastBypassLogMs = now;
-                    _observed[entity] = known;
                     _bypassTotal++;
 
                     string prefab = PrefabIndex.SafeName(_prefabSystem, entity);
@@ -227,6 +228,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         ", flags " + known.LightFlags + "->" + current.LightFlags +
                         ", groups " + known.SignalGroups + "->" + current.SignalGroups +
                         " (bypass #" + _bypassTotal + ", audit only - nothing sent).");
+
+                    // Stamp AFTER the log: known above is still the pre-change snapshot,
+                    // current is the post-change state already stored in the cache.
+                    Observed stamped = _observed[entity];
+                    stamped.LastBypassLogMs = now;
+                    _observed[entity] = stamped;
                 }
             }
             finally

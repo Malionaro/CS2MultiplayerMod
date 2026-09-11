@@ -24,7 +24,7 @@ namespace CS2MultiplayerMod.Game
             ObjectToolOperationCommand.Id, AssetStampCommand.Id,
             VisualCustomizationCommand.Id, ColorPaletteCommand.Id,
             DisasterEventCommand.Id, EntityNameCommand.Id,
-            GrowableLifecycleCommand.Id,
+            GrowableLifecycleCommand.Id, FireIgniteCommand.Id,
         };
 
         internal static void Register(MultiplayerSession session)
@@ -64,6 +64,7 @@ namespace CS2MultiplayerMod.Game
                 case DisasterEventCommand.Id: return "disaster-event";
                 case EntityNameCommand.Id: return "entity-name";
                 case GrowableLifecycleCommand.Id: return "growable-lifecycle";
+                case FireIgniteCommand.Id: return "fire-ignite";
                 default: return "unknown";
             }
         }

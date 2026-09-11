@@ -26,6 +26,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private RouteSyncSystem _routeSync;
         private TilePurchaseSyncSystem _tileSync;
         private DisasterSyncSystem _disasterSync;
+        private FireSyncSystem _fireSync;
         private GrowableSyncSystem _growableSync;
 
         protected override void OnCreate()
@@ -44,6 +45,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _routeSync = World.GetOrCreateSystemManaged<RouteSyncSystem>();
             _tileSync = World.GetOrCreateSystemManaged<TilePurchaseSyncSystem>();
             _disasterSync = World.GetOrCreateSystemManaged<DisasterSyncSystem>();
+            _fireSync = World.GetOrCreateSystemManaged<FireSyncSystem>();
             _growableSync = World.GetOrCreateSystemManaged<GrowableSyncSystem>();
         }
 
@@ -174,6 +176,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 // dependency - but they must still be created here: the game's event initialization
                 // runs later this frame and only ever looks at freshly Created events.
                 Step("DisasterSync", _disasterSync.RealizePending);
+                // A realized ignition only sets OnFire on an existing building or tree -
+                // no definitions, no terrain - so it rides the same slot as disasters.
+                Step("FireSync", _fireSync.RealizePending);
             }
         }
     }

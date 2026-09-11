@@ -66,9 +66,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _prefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             _prefabIndex = new PrefabIndex(_prefabSystem, GetEntityQuery(ComponentType.ReadOnly<PrefabData>()));
 
+            // UpdateFrame is required, not incidental: the rolling scan filters this
+            // query by it, and filtering by an absent component throws. Same tradeoff
+            // as the growable state scan - a building without UpdateFrame stays invisible.
             _scanBuildings = GetEntityQuery(new EntityQueryDesc
             {
-                All = SyncQuery.ReadOnly<Building, PrefabRef, Transform>(),
+                All = SyncQuery.ReadOnly<Building, PrefabRef, Transform, UpdateFrame>(),
                 None = SyncQuery.ReadOnly<Temp, Deleted, Owner>(),
             });
 

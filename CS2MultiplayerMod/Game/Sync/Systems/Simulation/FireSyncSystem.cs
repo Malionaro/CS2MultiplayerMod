@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Game;
 using Game.Common;
 using Game.Prefabs;
@@ -40,11 +41,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>Ignitions arrive rarely; a per-frame cap keeps a wildfire night from stalling a frame.</summary>
         private const int MaxRealizePerFrame = 4;
 
+        /// <summary>How long a target gets to show up before its ignition is dropped (10 s).</summary>
+        private const long RetryWindowMs = 10000;
+
         /// <summary>Target match tolerance, squared metres (2 m): buildings do not move.</summary>
         private const float MatchTolSq = 4f;
 
         private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
             new ConcurrentQueue<SimulationCommandMessage>();
+        private readonly List<(FireIgniteCommand command, int originPlayerId, long deadline)> _retry =
+            new List<(FireIgniteCommand, int, long)>();
 
         private PrefabSystem _prefabSystem;
         private PrefabIndex _prefabIndex;
@@ -101,6 +107,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
         }
 
+        /// <summary>What one realize attempt concluded. Only Retry keeps the command.</summary>
+        private enum Outcome
+        {
+            /// <summary>Applied, already burning, or permanently unresolvable - done.</summary>
+            Done,
+            /// <summary>Known prefab, live target not present yet - try again within the window.</summary>
+            Retry,
+        }
+
         /// <summary>Called by <see cref="SyncRealizeSystem"/> during ToolUpdate, next to disasters:
         /// a fire is a plain simulation state change, no definitions and no terrain involved.</summary>
         public void RealizePending()
@@ -110,13 +125,43 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (!service.GameplaySyncReady)
             {
                 SyncInbox.Clear(_incoming);
+                if (_retry.Count > 0) _retry.Clear();
                 return;
             }
 
             MultiplayerSession session = service.Session;
-            int realized = 0;
+            long now = service.NowMs;
+            int attempts = 0;
+
+            // Oldest first: ignitions whose targets had not arrived when they were tried.
+            // Expired ones are dropped, unattempted ones keep their order behind this frame.
+            List<(FireIgniteCommand command, int originPlayerId, long deadline)> due =
+                new List<(FireIgniteCommand, int, long)>();
+            for (int i = 0; i < _retry.Count; i++)
+            {
+                if (_retry[i].deadline < now)
+                {
+                    SyncLog.Detail(LogTopic.City, "FireSync: giving up on ignite of '" +
+                        _retry[i].command.PrefabName + "' whose target never arrived.");
+                    continue;
+                }
+                due.Add(_retry[i]);
+            }
+            _retry.Clear();
+            foreach (var pending in due)
+            {
+                if (attempts >= MaxRealizePerFrame)
+                {
+                    _retry.Add(pending);
+                    continue;
+                }
+                attempts++;
+                if (Realize(pending.command, pending.originPlayerId) == Outcome.Retry)
+                    _retry.Add((pending.command, pending.originPlayerId, pending.deadline));
+            }
+
             SimulationCommandMessage message;
-            while (realized < MaxRealizePerFrame && _incoming.TryDequeue(out message))
+            while (attempts < MaxRealizePerFrame && _incoming.TryDequeue(out message))
             {
                 if (message.OriginPlayerId == session.LocalPlayerId) continue;
 
@@ -129,7 +174,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     continue;
                 }
 
-                if (Realize(command, message.OriginPlayerId)) realized++;
+                // Every scan counts toward the cap, success or not: a burst of commands
+                // for missing targets must not turn one frame into thousands of city scans.
+                attempts++;
+                if (Realize(command, message.OriginPlayerId) == Outcome.Retry)
+                    _retry.Add((command, message.OriginPlayerId, now + RetryWindowMs));
             }
         }
 
@@ -223,14 +272,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         // ---- Realize ------------------------------------------------------------
 
-        private bool Realize(FireIgniteCommand command, int originPlayerId)
+        private Outcome Realize(FireIgniteCommand command, int originPlayerId)
         {
             Entity prefab;
             if (!_prefabIndex.TryResolve(command.PrefabName, out prefab))
             {
+                // Terminal: prefabs ship with the game and DLC, they never arrive mid-session.
                 SyncLog.Warn(LogTopic.City, "FireSync: no local prefab named '" +
                     command.PrefabName + "'; ignoring the ignition.");
-                return false;
+                return Outcome.Done;
             }
 
             float3 target = new float3(command.X, command.Y, command.Z);
@@ -262,15 +312,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             if (best == Entity.Null)
             {
-                SyncLog.Warn(LogTopic.City, "FireSync: no local '" + command.PrefabName +
-                    "' near " + target + "; ignoring the ignition.");
-                return false;
+                // Not a drop: the placement carrying this target may still be held
+                // upstream (terrain deferral) and arrive a few frames later.
+                return Outcome.Retry;
             }
             if (EntityManager.HasComponent<global::Game.Events.OnFire>(best))
             {
                 // Already burning here - either our own simulation got there first or this
                 // is the echo of a start both sides rolled. Either way there is nothing to do.
-                return true;
+                return Outcome.Done;
             }
 
             // What the game's ignite pipeline would have installed: the burn state plus the
@@ -293,7 +343,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             SyncLog.Detail(LogTopic.City, "FireSync realized ignite of '" + command.PrefabName +
                 "' at " + target + " from player " + originPlayerId + ".");
-            return true;
+            return Outcome.Done;
         }
 
         private void DrainQueue()

@@ -218,7 +218,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                     _bypassTotal++;
 
-                    string prefab = PrefabIndex.SafeName(_prefabSystem, entity);
+                    // Live node, not a prefab: resolve through PrefabRef like the other
+                    // capture systems do (SafeName only takes prefab entities).
+                    Entity prefabEntity = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
+                    string prefab = PrefabIndex.SafeName(_prefabSystem, prefabEntity);
                     string pos = EntityManager.GetComponentData<Node>(entity).m_Position.ToString();
                     SyncLog.Detail(LogTopic.Nets,
                         "TrafficControlAudit: node traffic state changed without an upgrade edit " +

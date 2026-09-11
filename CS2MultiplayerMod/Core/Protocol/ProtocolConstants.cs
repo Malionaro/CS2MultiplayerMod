@@ -4,7 +4,13 @@ namespace CS2MultiplayerMod.Core.Protocol
     {
         /// <summary>
         /// Wire-format version. Bump when message layout changes to refuse handshake on mismatch.
-        /// Current v62 adds command id 29, fire ignition: one command per building or tree
+        /// Current v63 adds command id 30, service building state: one command per
+        /// abandonment, condemnation or destruction marker change on a non-spawnable
+        /// building, carrying the standing prefab, its position and the resulting marker
+        /// set. Growables keep their own lifecycle command and removals stay with delete
+        /// sync; a v62 peer knows neither the id nor the marker ownership and is refused
+        /// at the handshake instead of diverging silently.
+        /// Previous v62 adds command id 29, fire ignition: one command per building or tree
         /// fire start, carrying the target's prefab and position plus the ignition intensity.
         /// Only starts travel; the burn, the spread and the extinguish run locally on every
         /// machine, the same start-only shape as disaster events. A v61 peer does not know
@@ -201,7 +207,7 @@ namespace CS2MultiplayerMod.Core.Protocol
         /// islands) reattach on the receiver.
         /// See <see cref="Messages.HandshakeRequest"/> and version notes in doc/internals.
         /// </summary>
-        public const int ProtocolVersion = 62;
+        public const int ProtocolVersion = 63;
 
         /// <summary>
         /// Hard cap on a single payload, guarding against corrupt length prefixes.

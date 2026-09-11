@@ -27,6 +27,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private TilePurchaseSyncSystem _tileSync;
         private DisasterSyncSystem _disasterSync;
         private FireSyncSystem _fireSync;
+        private ServiceBuildingStateSyncSystem _serviceBuildingStateSync;
         private GrowableSyncSystem _growableSync;
 
         protected override void OnCreate()
@@ -46,6 +47,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _tileSync = World.GetOrCreateSystemManaged<TilePurchaseSyncSystem>();
             _disasterSync = World.GetOrCreateSystemManaged<DisasterSyncSystem>();
             _fireSync = World.GetOrCreateSystemManaged<FireSyncSystem>();
+            _serviceBuildingStateSync = World.GetOrCreateSystemManaged<ServiceBuildingStateSyncSystem>();
             _growableSync = World.GetOrCreateSystemManaged<GrowableSyncSystem>();
         }
 
@@ -179,6 +181,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 // A realized ignition only sets OnFire on an existing building or tree -
                 // no definitions, no terrain - so it rides the same slot as disasters.
                 Step("FireSync", _fireSync.RealizePending);
+                // Marker writes next to fire realizes: same plain-component shape, same slot.
+                Step("ServiceBuildingState", _serviceBuildingStateSync.RealizePending);
             }
         }
     }

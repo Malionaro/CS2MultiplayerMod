@@ -4,7 +4,12 @@ namespace CS2MultiplayerMod.Core.Protocol
     {
         /// <summary>
         /// Wire-format version. Bump when message layout changes to refuse handshake on mismatch.
-        /// Current v61 decides the water pin on a net course's endpoint ELEVATIONS. The gate read
+        /// Current v62 adds command id 29, fire ignition: one command per building or tree
+        /// fire start, carrying the target's prefab and position plus the ignition intensity.
+        /// Only starts travel; the burn, the spread and the extinguish run locally on every
+        /// machine, the same start-only shape as disaster events. A v61 peer does not know
+        /// id 29, so the bump refuses it at the handshake instead of dropping its fires silently.
+        /// Previous v61 decides the water pin on a net course's endpoint ELEVATIONS. The gate read
         /// CoursePosFlags.FreeHeight, which the net tool sets only on parallel, grid and mid-curve
         /// positions - never on either end of a plain drag, whatever height it is drawn at. Every
         /// hand-drawn bridge was therefore exempted and rebuilt its deck from the receiver's own
@@ -196,7 +201,7 @@ namespace CS2MultiplayerMod.Core.Protocol
         /// islands) reattach on the receiver.
         /// See <see cref="Messages.HandshakeRequest"/> and version notes in doc/internals.
         /// </summary>
-        public const int ProtocolVersion = 61;
+        public const int ProtocolVersion = 62;
 
         /// <summary>
         /// Hard cap on a single payload, guarding against corrupt length prefixes.

@@ -29,6 +29,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     /// started, where it is once a minute while it runs, and how it ended (natural end versus
     /// early drop, actual lived frames versus the commanded duration). That is the exact input
     /// a follow-up Verlauf sync would need: which path each side took and where they parted.
+    /// It only runs while the City log topic is on; with the topic off it resets and re-seeds
+    /// on re-enable, so a troubleshooting audit never costs a normal session a frame.
     ///
     /// If the heartbeat lines show both machines walking the same path and every event ends on
     /// time, the start-only replication covers everything and no follow-up sync is needed. If
@@ -127,15 +129,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                 if (!service.GameplaySyncReady)
                 {
-                    if (_tracked.Count > 0) _tracked.Clear();
-                    _seeded = false;
-                    _startedTotal = 0;
-                    _endedTotal = 0;
-                    _earlyTotal = 0;
-                    _reportedStarted = 0;
-                    _reportedEnded = 0;
-                    _lastSummaryMs = 0;
-                    _nextReapMs = 0;
+                    ResetState();
+                    return;
+                }
+
+                // Troubleshooting-only audit, so it stays off with the topic: every line
+                // below is a gated Detail, and SyncLog asks callers not to compute what
+                // nobody reads. Reset (not pause) so a later re-enable re-seeds instead
+                // of flushing stale end lines for events that died while unwatched.
+                if (!SyncLog.IsEnabled(LogTopic.City))
+                {
+                    ResetState();
                     return;
                 }
 
@@ -157,6 +161,23 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         }
 
         /// <summary>
+        /// Forget everything: session over, or the City topic went off. The next update
+        /// re-seeds from the live world, so nothing stale is ever reported.
+        /// </summary>
+        private void ResetState()
+        {
+            if (_tracked.Count > 0) _tracked.Clear();
+            _seeded = false;
+            _startedTotal = 0;
+            _endedTotal = 0;
+            _earlyTotal = 0;
+            _reportedStarted = 0;
+            _reportedEnded = 0;
+            _lastSummaryMs = 0;
+            _nextReapMs = 0;
+        }
+
+        /// <summary>
         /// Learn the events already running when sync starts (both sides hold the same
         /// downloaded world) without logging them as new. Without this baseline every
         /// pre-session storm would look like a fresh start on its next heartbeat.
@@ -169,7 +190,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             seeded += SeedQuery(_liveSurges, DisasterKind.WaterLevelChange, now, frame);
             if (seeded > 0)
                 SyncLog.Detail(LogTopic.City, "DisasterLifecycleAudit: watching " +
-                    seeded + " active event(s) from session start, audit only (sends nothing).");
+                    seeded + " already-running event(s), audit only (sends nothing).");
         }
 
         private int SeedQuery(EntityQuery query, DisasterKind kind, long now, long frame)
@@ -306,6 +327,20 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void HeartbeatActive(long now)
         {
             if (_tracked.Count == 0) return;
+
+            // No per-frame allocation on the common path: most frames nothing is due.
+            // The key snapshot below only runs in a minute where a line is actually logged.
+            bool anyDue = false;
+            foreach (Tracked candidate in _tracked.Values)
+            {
+                if (now - candidate.LastHeartbeatMs >= HeartbeatIntervalMs)
+                {
+                    anyDue = true;
+                    break;
+                }
+            }
+            if (!anyDue) return;
+
             long frame = (long)_simulation.frameIndex;
 
             List<Entity> keys = new List<Entity>(_tracked.Keys);

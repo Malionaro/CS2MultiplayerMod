@@ -10,11 +10,15 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
 {
     /// <summary>
     /// Replicates the cumulative life-event counters - deaths, births, move-ins,
-    /// move-aways, crime, mail - host -> clients, so both players' statistics panels show
-    /// the same numbers between full-world resyncs.
+    /// move-aways, crime, mail, transport passengers and cargo - host -> clients, so
+    /// both players' statistics panels show the same numbers between full-world resyncs.
     /// Mechanism: the host snapshots each counter's lifetime value and the client feeds it
     /// through the game's own event pipeline, the same path the deathcare/crime systems use,
     /// so the statistics buffers stay internally consistent and serializable.
+    /// Only event-accumulated lifetime totals ride here. Gauges the simulation rewrites
+    /// itself (population, money, happiness, current tourists) are deliberately excluded:
+    /// forcing those through the event queue fights the writer, the same reason the
+    /// population channel was retired.
     /// </summary>
     public sealed class StatisticsStateChannel : IStateChannel
     {
@@ -31,6 +35,23 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
             StatisticType.EscapedArrestCount,
             StatisticType.CollectedMail,
             StatisticType.DeliveredMail,
+            // Transport ridership and cargo: lifetime boarding/load totals shown in the
+            // transport info summaries. Same event-accumulated shape as the counters
+            // above, read at parameter 0 (the total), so the generic delta mechanism
+            // applies unchanged. The payload stays self-describing (count + type +
+            // value), so peers without these entries simply exchange fewer of them.
+            StatisticType.PassengerCountBus,
+            StatisticType.PassengerCountSubway,
+            StatisticType.PassengerCountTram,
+            StatisticType.PassengerCountTrain,
+            StatisticType.PassengerCountTaxi,
+            StatisticType.PassengerCountAirplane,
+            StatisticType.PassengerCountShip,
+            StatisticType.PassengerCountFerry,
+            StatisticType.CargoCountTruck,
+            StatisticType.CargoCountTrain,
+            StatisticType.CargoCountShip,
+            StatisticType.CargoCountAirplane,
         };
 
         private CityStatisticsSystem _stats;

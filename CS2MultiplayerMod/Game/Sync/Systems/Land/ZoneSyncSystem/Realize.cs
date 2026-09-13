@@ -27,15 +27,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 if (!_ready.TryTake(out key, out command)) break;
                 remaining--;
 
-                bool matched, changed;
-                ApplyOne(command, lookup, now, out matched, out changed);
+                bool matched, changed, absentGrid;
+                ApplyOne(command, lookup, out matched, out changed, out absentGrid);
                 if (changed) _diagnosticApplied++;
                 if (!matched)
                 {
                     var pending = new PendingZone
                     {
                         Command = command,
-                        DeadlineMs = now + ZoneRetryWindowMs,
+                        DeadlineMs = _retryClock.NowMs + ZoneRetryWindowMs,
                     };
                     if (!_pending.TrySetLatest(key, pending, MaxPendingZones))
                     {
@@ -59,24 +59,51 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     PendingZone pending;
                     if (!_pending.TryTake(out key, out pending)) break;
 
-                    bool matched, changed;
-                    ApplyOne(pending.Command, lookup, now, out matched, out changed);
+                    bool matched, changed, absentGrid;
+                    ApplyOne(pending.Command, lookup, out matched, out changed, out absentGrid);
                     if (matched)
                     {
+                        WithdrawZoneRecovery(pending, now);
                         if (changed) _diagnosticApplied++;
-                    }
-                    else if (now >= pending.DeadlineMs)
-                    {
-                        _diagnosticExpired++;
                     }
                     else
                     {
-                        // This item was removed immediately above, so reinsertion cannot exceed
-                        // the capacity. Keeping the same deadline makes retry time strictly bounded.
+                        if (pending.RecoveryReport == null && _retryClock.NowMs >= pending.DeadlineMs)
+                        {
+                            // Every cell still unresolved sits on a live block that exposes no
+                            // zonable cell there. Zoning it is a no-op on this machine, so the
+                            // patch is dropped rather than treated as a diverged city.
+                            if (!absentGrid)
+                            {
+                                _diagnosticUnzonable++;
+                                continue;
+                            }
+                            _diagnosticExpired++;
+                            ZonePaintCommand command = pending.Command;
+                            pending.RecoveryReport = Diagnostics.ResyncReport
+                                .Create("edited zoning cells did not resolve", "zone",
+                                    Diagnostics.ResyncEvidence.MissingTarget)
+                                .About("zoning patch at " + command.PosX + "," + command.PosY + "," +
+                                    command.PosZ + " facing " + command.DirX + "," + command.DirZ +
+                                    " size " + command.SizeX + "x" + command.SizeY)
+                                .Tried("retried unresolved cells for 12 s of eligible time; continuing during the recovery hold");
+                            Infrastructure.SyncInbox.Settle(pending.RecoveryReport);
+                        }
+                        // Keep trying while recovery is held, and withdraw the report if the grid
+                        // catches up. Reporting every retry would falsely corroborate the same miss.
+                        // The removed slot remains ours, so reinsertion cannot exceed the bound.
                         _pending.TrySetLatest(key, pending, MaxPendingZones);
                     }
                 }
             }
+        }
+
+        private static void WithdrawZoneRecovery(PendingZone pending, long now)
+        {
+            Diagnostics.ResyncReport report = pending.RecoveryReport;
+            if (report == null) return;
+            Diagnostics.ResyncArbiter.Withdraw(report.Subsystem, report.Reason, report.Subject, now,
+                "the zoning patch resolved or was merged into a newer pending edit");
         }
 
         private Dictionary<long, List<Entity>> GetBlockLookup(long now)
@@ -122,7 +149,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             float2 direction = block.m_Direction;
             float2 right = new float2(direction.y, -direction.x);
             float2 extents = math.abs(direction) * (block.m_Size.y * 4f) +
-                             math.abs(right) * (block.m_Size.x * 4f);
+                             math.abs(right) * (block.m_Size.x * 4f) + ZoneCellMatchRules.LookupPadding;
             float2 center = block.m_Position.xz;
             int minX = (int)math.floor((center.x - extents.x) / BlockLookupBucketSize);
             int maxX = (int)math.floor((center.x + extents.x) / BlockLookupBucketSize);
@@ -153,16 +180,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         }
 
         /// <summary>
-        /// Apply one zone command to its local block. <paramref name="matched"/> tells the
-        /// caller whether the block exists yet (so an unmatched command can be retried);
-        /// <paramref name="changed"/> whether any cell actually changed.
+        /// Apply edited cells to the local grid. <paramref name="matched"/> tells the
+        /// caller whether every edited cell resolved (so unresolved cells can be retried);
+        /// <paramref name="changed"/> whether any cell actually changed;
+        /// <paramref name="absentGrid"/> whether any unresolved cell had no zoning grid at all
+        /// where the source put it, which is the only miss that can mean a diverged city.
         /// </summary>
         private void ApplyOne(ZonePaintCommand command, Dictionary<long, List<Entity>> lookup,
-            long now, out bool matched, out bool changed)
+            out bool matched, out bool changed, out bool absentGrid)
         {
             matched = true;
             changed = false;
-            var mappedBlocks = new List<Entity>(4);
+            absentGrid = false;
             var changedBlocks = new List<Entity>(4);
             var resolvedZones = new ushort[command.ZoneNames.Length];
             var knownZones = new bool[command.ZoneNames.Length];
@@ -179,13 +208,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             for (int c = 0; c < command.Cells.Length; c++)
             {
-                if (!command.IsCellVisible(c)) continue;
+                if (!command.IsCellEdited(c) || !command.IsCellVisible(c)) continue;
 
                 byte tableIndex = command.Cells[c];
                 ushort wanted = 0;
                 if (tableIndex != ZonePaintCommand.NoneCell)
                 {
-                    if (!knownZones[tableIndex]) continue; // Unknown prefab: preserve local zoning.
+                    if (!knownZones[tableIndex]) { matched = false; absentGrid = true; continue; }
                     wanted = resolvedZones[tableIndex];
                 }
 
@@ -193,20 +222,25 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 if (!command.TryGetCellCenter(c, out sourceX, out sourceY, out sourceZ))
                 {
                     matched = false;
+                    absentGrid = true;
                     continue;
                 }
 
                 Entity blockEntity;
                 int localIndex;
+                bool gridCoversCell;
                 if (!TryFindLocalCell(lookup, command,
                         new float3(sourceX, sourceY, sourceZ), command.CellStates[c],
-                        out blockEntity, out localIndex))
+                        out blockEntity, out localIndex, out gridCoversCell))
                 {
                     matched = false;
+                    if (!gridCoversCell) absentGrid = true;
                     continue;
                 }
 
-                AddUnique(mappedBlocks, blockEntity);
+                // Retire each successful cell separately. Replaying a partially matched block
+                // must not undo a newer paint/erase on a cell that already succeeded.
+                command.CellStates[c] &= unchecked((byte)~ZonePaintCommand.StateEdited);
                 DynamicBuffer<Cell> cells = EntityManager.GetBuffer<Cell>(blockEntity);
                 Cell cell = cells[localIndex];
                 if (cell.m_Zone.m_Index == wanted) continue;
@@ -216,32 +250,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 changed = true;
             }
 
-            // A source block may span several locally generated blocks, so finalize each target
-            // once. For a partial application, leave unchanged targets alone: retrying a missing
-            // cell must not repeatedly absorb an unrelated local edit into the capture baseline.
-            for (int i = 0; i < mappedBlocks.Count; i++)
+            for (int i = 0; i < changedBlocks.Count; i++)
             {
-                Entity blockEntity = mappedBlocks[i];
-                bool blockChanged = changedBlocks.Contains(blockEntity);
-                if (!matched && !blockChanged) continue;
-                if (!IsLiveBlock(blockEntity)) continue;
-                Block localBlock = EntityManager.GetComponentData<Block>(blockEntity);
-                DynamicBuffer<Cell> cells = EntityManager.GetBuffer<Cell>(blockEntity);
-                bool anyZoned;
-                int actualHash = ContentHash(cells, out anyZoned);
-                ZoneBlockKey blockKey = StateKey(localBlock);
-                _lastZoneStates[blockKey] = new ZoneBaseline
-                {
-                    Entity = blockEntity,
-                    Hash = actualHash,
-                };
-                _outgoing.Remove(blockKey);
-                if (anyZoned) _zonedBlocks.Add(blockKey);
-
-                if (!blockChanged) continue;
-                _guard.Mark(BlockKey(blockKey, actualHash), now);
-                if (!EntityManager.HasComponent<Updated>(blockEntity))
-                    EntityManager.AddComponent<Updated>(blockEntity);
+                Entity block = changedBlocks[i];
+                if (IsLiveBlock(block) && !EntityManager.HasComponent<Updated>(block))
+                    EntityManager.AddComponent<Updated>(block);
             }
         }
 
@@ -249,21 +262,23 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// Map one visible source cell to the closest semantically compatible visible local cell.
         /// Searching immediate index neighbours handles a half-cell alignment difference without
         /// copying any of the sender's locally generated state flags.
+        /// <para>
+        /// <paramref name="gridCoversCell"/> separates the two ways this can fail: no live block
+        /// reaches the position at all (the zoning grid itself is missing here) versus a block
+        /// that reaches it but exposes no zonable cell there. Only the first is a divergence.
+        /// </para>
         /// </summary>
         private bool TryFindLocalCell(Dictionary<long, List<Entity>> lookup,
             ZonePaintCommand command, float3 sourcePosition, byte sourceState,
-            out Entity bestBlock, out int bestIndex)
+            out Entity bestBlock, out int bestIndex, out bool gridCoversCell)
         {
             bestBlock = Entity.Null;
             bestIndex = -1;
+            gridCoversCell = false;
             List<Entity> candidates;
             if (!lookup.TryGetValue(SpatialBucket(sourcePosition.xz), out candidates)) return false;
 
             float2 sourceDirection = math.normalizesafe(new float2(command.DirX, command.DirZ));
-            bool sourceHasRoad = (sourceState & ZonePaintCommand.StateRoadMask) != 0;
-            bool sourceRoadside = (sourceState & ZonePaintCommand.StateRoadside) != 0;
-            bool sourceShared = (sourceState & ZonePaintCommand.StateShared) != 0;
-            bool sourceOccupied = (sourceState & ZonePaintCommand.StateOccupied) != 0;
             float2 sourceBlockPosition = new float2(command.PosX, command.PosZ);
             float bestScore = float.MaxValue;
 
@@ -271,12 +286,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 Entity blockEntity = candidates[candidateIndex];
                 if (!IsLiveBlock(blockEntity)) continue;
+                gridCoversCell = true;
 
                 Block block = EntityManager.GetComponentData<Block>(blockEntity);
                 float signedAlignment = math.dot(sourceDirection,
                     math.normalizesafe(block.m_Direction));
-                float alignment = math.abs(signedAlignment);
-                if (alignment < 0.8f) continue;
                 float stripOffset = math.abs(math.dot(block.m_Position.xz - sourceBlockPosition,
                     sourceDirection));
 
@@ -297,23 +311,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                         float3 localPosition = ZoneUtils.GetCellPosition(block, local);
                         float distanceSquared = math.lengthsq(localPosition.xz - sourcePosition.xz);
-                        if (distanceSquared > 40f) continue;
-
-                        bool localHasRoad = (cell.m_State & (CellFlags.Roadside |
-                            CellFlags.RoadLeft | CellFlags.RoadRight | CellFlags.RoadBack)) != 0;
-                        bool localRoadside = (cell.m_State & CellFlags.Roadside) != 0;
-                        bool localShared = (cell.m_State & CellFlags.Shared) != 0;
-                        bool localOccupied = (cell.m_State & CellFlags.Occupied) != 0;
-
-                        float score = distanceSquared + (1f - alignment) * 32f +
-                                      math.min(stripOffset * stripOffset * 0.25f, 64f);
-                        if (signedAlignment < 0f) score += 32f;
-                        if (sourceHasRoad != localHasRoad) score += 64f;
-                        if (sourceRoadside != localRoadside) score += 16f;
-                        if (sourceShared != localShared) score += 4f;
-                        if (sourceOccupied != localOccupied) score += 2f;
-                        if (block.m_Size.x == command.SizeX && block.m_Size.y == command.SizeY)
-                            score -= 0.25f;
+                        float score;
+                        if (!ZoneCellMatchRules.TryScore(distanceSquared,
+                                block.m_Position.y - sourcePosition.y, signedAlignment, stripOffset,
+                                sourceState, PortableCellState(cell.m_State),
+                                block.m_Size.x == command.SizeX && block.m_Size.y == command.SizeY,
+                                out score)) continue;
 
                         if (score >= bestScore) continue;
                         bestScore = score;

@@ -3,6 +3,30 @@ using System.Text;
 
 namespace CS2MultiplayerMod.Game.Diagnostics
 {
+    /// <summary>What the arbiter decided about a submitted <see cref="ResyncReport"/>.</summary>
+    public enum ResyncVerdict
+    {
+        /// <summary>
+        /// Not settled yet. A caller that can keep its work must KEEP it and retry: the mutating
+        /// net feeders are frozen for the length of the hold, so the retry runs against a world
+        /// that is no longer moving underneath it.
+        ///
+        /// Held is not "dismissed". Unless something calls <see cref="ResyncArbiter.Withdraw"/> to
+        /// say the fault cleared, the report settles by itself when its hold elapses - so a real
+        /// divergence still gets repaired, it just gets one honest chance not to be one first.
+        /// </summary>
+        Held = 0,
+
+        /// <summary>Settled: the evidence stands. The world will be reloaded.</summary>
+        Settled,
+
+        /// <summary>
+        /// Settled by someone else already - a reload is in flight. The caller drops its work; the
+        /// incoming snapshot supersedes it either way.
+        /// </summary>
+        AlreadyRecovering,
+    }
+
     /// <summary>
     /// What a resync request is actually claiming about the world.
     ///

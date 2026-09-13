@@ -325,7 +325,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 BuildSyncSystem.NativeDeriveResult derived = buildSync.TryDeriveObjectTransaction(
                     prefab, Entity.Null, original, destinationParent, newPos, rotation,
                     command.Elevation, command.ToolRandomSeed, "move " + command.PrefabName,
-                    () => _incoming.Enqueue(retained), null);
+                    () => _incoming.Enqueue(retained),
+                    () => buildSync.TrackRemoteBuilding(original, prefab, newPos, rotation,
+                        roadConnectionExpected: false, source: "relocated"));
                 if (derived == BuildSyncSystem.NativeDeriveResult.Busy) return false;
                 if (derived == BuildSyncSystem.NativeDeriveResult.Armed)
                 {

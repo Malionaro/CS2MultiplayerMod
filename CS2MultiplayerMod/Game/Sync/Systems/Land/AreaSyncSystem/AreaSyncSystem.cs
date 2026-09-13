@@ -35,6 +35,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private Dictionary<Entity, float3[]> _knownRings = new Dictionary<Entity, float3[]>();
         private Dictionary<Entity, float3[]> _nextRings = new Dictionary<Entity, float3[]>();
         private long _lastEditScanMs;
+        private long _lastDistrictRepairMs;
 
         private PrefabSystem _prefabSystem;
         private BuildSyncSystem _buildSync;
@@ -42,6 +43,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private EntityQuery _createdAreas;
         private EntityQuery _deletedAreas;
         private EntityQuery _liveAreas;
+        private EntityQuery _districtAreas;
         private EntityQuery _ownedSpecializedAreas;
         private EntityQuery _ownedAreaOwners;
         private CommandObserver _observer;
@@ -62,6 +64,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 All = SyncQuery.ReadOnly<Area, Node, PrefabRef>(),
                 None = SyncQuery.ReadOnly<Temp, Owner, Deleted, MapTile>(),
+            });
+            _districtAreas = GetEntityQuery(new EntityQueryDesc
+            {
+                All = SyncQuery.ReadOnly<Area, District, Node>(),
+                None = SyncQuery.ReadOnly<Temp, Owner, Deleted, Created, Hidden, MapTile>(),
             });
             _ownedSpecializedAreas = GetEntityQuery(new EntityQueryDesc
             {
@@ -146,6 +153,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             List<AreaDeleteCommand> deletes = null;
             long now = service.NowMs;
+            RepairIncompleteDistricts(now);
             RetryOwnedAreaSnapshots(now);
             SimulationCommandMessage message;
             while (_incoming.TryDequeue(out message))

@@ -1,3 +1,4 @@
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -208,8 +209,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// </summary>
         private void DedupeCitizens(Entity household)
         {
-            DynamicBuffer<HouseholdCitizen> members =
-                EntityManager.GetBuffer<HouseholdCitizen>(household);
+            var members = new BufferEdit<HouseholdCitizen>(EntityManager, household);
             for (int i = members.Length - 1; i >= 0; i--)
             {
                 Entity citizen = members[i].m_Citizen;
@@ -232,8 +232,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void DedupePets(Entity household)
         {
             if (!EntityManager.HasBuffer<HouseholdAnimal>(household)) return;
-            DynamicBuffer<HouseholdAnimal> animals =
-                EntityManager.GetBuffer<HouseholdAnimal>(household);
+            var animals = new BufferEdit<HouseholdAnimal>(EntityManager, household);
             for (int i = animals.Length - 1; i >= 0; i--)
             {
                 Entity pet = animals[i].m_HouseholdPet;
@@ -389,7 +388,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             Entity workplace = worker.m_Workplace;
             if (workplace == Entity.Null || !EntityManager.Exists(workplace) ||
                 !EntityManager.HasBuffer<Employee>(workplace)) return;
-            DynamicBuffer<Employee> employees = EntityManager.GetBuffer<Employee>(workplace);
+            var employees = new BufferEdit<Employee>(EntityManager, workplace);
             int employeeIndex = -1;
             for (int i = 0; i < employees.Length; i++)
             {

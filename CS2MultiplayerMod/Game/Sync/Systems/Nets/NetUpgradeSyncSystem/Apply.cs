@@ -14,6 +14,7 @@ using Unity.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
 using CS2MultiplayerMod.Game.Diagnostics;
 using CS2MultiplayerMod.Game.Sync.Commands;
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 namespace CS2MultiplayerMod.Game.Sync.Systems
 {
     // Applying a peer's upgrade to the local edge or node at the same place, and the sub-
@@ -248,16 +249,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (EntityManager.HasComponent<TrafficLights>(best))
                         EntityManager.RemoveComponent<TrafficLights>(best);
 
-                    EntityManager.AddComponent<Updated>(best);
-
-                    // Node composition is selected while processing the connected edges, so
-                    // re-update them like the game's own commit does.
-                    if (EntityManager.HasBuffer<ConnectedEdge>(best))
-                    {
-                        DynamicBuffer<ConnectedEdge> connected = EntityManager.GetBuffer<ConnectedEdge>(best);
-                        for (int c = 0; c < connected.Length; c++)
-                            TagUpdated(connected[c].m_Edge);
-                    }
+                    // Snapshot the connected edges before adding Updated. Adding that component
+                    // is structural and invalidates a live ConnectedEdge buffer mid-iteration,
+                    // which otherwise leaves only a prefix of the junction refreshed.
+                    NetAttachment.TagParentUpdated(EntityManager, best);
 
                     targets.RemoveAt(t);
                     applied++;

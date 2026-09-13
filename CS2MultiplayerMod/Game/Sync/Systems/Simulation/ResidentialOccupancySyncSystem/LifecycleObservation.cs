@@ -20,7 +20,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             NativeArray<Entity> changedHouseholds, NativeArray<Entity> changedHealthCitizens)
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
 
             _lifecyclePropertyScratch.Clear();
             for (int i = 0; i < changedHouseholds.Length; i++)

@@ -298,8 +298,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                 // A remote net transaction owns this frame's ApplyTool pass. Its isolation
                 // deliberately prevents the local preview from committing, so it must not be
-                // published as local work.
-                if (_nativeNetCoordinator != null && _nativeNetCoordinator.HasArmedToolCommit)
+                // published as local work - unless the armed batch was stood down for this very
+                // Apply, in which case the local placement does commit and skipping it both loses
+                // the edit and trips the capture-miss world reload.
+                if (_nativeNetCoordinator != null && _nativeNetCoordinator.HasArmedToolCommit &&
+                    !_nativeNetCoordinator.LocalToolOutputProtectedThisFrame)
                     return;
 
                 // Read a relocation from the same one-shot snapshot. The committed entity is not a

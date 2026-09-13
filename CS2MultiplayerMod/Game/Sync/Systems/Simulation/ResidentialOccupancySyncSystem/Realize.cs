@@ -148,7 +148,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void PumpIncoming()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
             if (service.Session.Role == SessionRole.Host)
             {
                 DropIncomingPages();

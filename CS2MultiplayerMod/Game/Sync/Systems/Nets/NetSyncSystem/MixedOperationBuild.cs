@@ -36,7 +36,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             var replacedOriginalEdges = new HashSet<Entity>();
             for (int i = 0; i < replaceActions.Count; i++)
                 replacedOriginalEdges.Add(replaceActions[i].Edge);
-            var batchNewNodes = new NativeList<float3>(operation.Items.Length, Allocator.Temp);
+            var batchNewNodes = new NetBatchNodes();
             var batchEdges = new NativeList<Bezier4x3>(operation.Items.Length, Allocator.Temp);
             bool commitArmed = false;
             long constructionCost = 0;
@@ -92,20 +92,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     Entity startSnap;
                     Entity endSnap;
                     float startT, endT;
+                    CoursePos? startShared = null, endShared = null;
                     int startKind, endKind;
                     bool ignoredSurface;
+                    // Use the ordinary placement resolver for Free endpoints too. A mixed edit can
+                    // place a rail course beside a replacement that retains its original end node.
+                    // Forcing Entity.Null here creates a separate node at that same joint. The shared
+                    // resolver only reuses a live, compatible coincident node and honors DisableMerge.
                     if (command.Start.Kind == NetEndpointTargetKind.Infer)
                         startSnap = ClassifyEndpointWithLocalSurface(prepared.Prefab,
-                            prepared.Curve.a,
+                            new float3(command.Start.PosX, command.Start.PosY, command.Start.PosZ),
                             new float2(command.Start.ElevationLeft, command.Start.ElevationRight),
-                            info, ref nodes, ref edges, ref ownedNodes, batchNewNodes, batchEdges,
-                            ref heightData, ref waterData, out startT, out startKind);
-                    else if (command.Start.Kind == NetEndpointTargetKind.Free)
-                    {
-                        startSnap = Entity.Null;
-                        startT = 0f;
-                        startKind = KindFree;
-                    }
+                            command.Start.Flags, info, ref nodes, ref edges, ref ownedNodes, batchNewNodes, batchEdges,
+                            ref heightData, ref waterData, out startT, out startKind, out startShared);
                     else if (!TryResolveNativeEndpointWithLocalSurface(prepared.Prefab,
                                  command.Start, info, ref nodes, ref edges, ref ownedNodes,
                                  ref ownedEdges, ref heightData, ref waterData,
@@ -116,16 +115,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
                     if (command.End.Kind == NetEndpointTargetKind.Infer)
                         endSnap = ClassifyEndpointWithLocalSurface(prepared.Prefab,
-                            prepared.Curve.d,
+                            new float3(command.End.PosX, command.End.PosY, command.End.PosZ),
                             new float2(command.End.ElevationLeft, command.End.ElevationRight),
-                            info, ref nodes, ref edges, ref ownedNodes, batchNewNodes, batchEdges,
-                            ref heightData, ref waterData, out endT, out endKind);
-                    else if (command.End.Kind == NetEndpointTargetKind.Free)
-                    {
-                        endSnap = Entity.Null;
-                        endT = 0f;
-                        endKind = KindFree;
-                    }
+                            command.End.Flags, info, ref nodes, ref edges, ref ownedNodes, batchNewNodes, batchEdges,
+                            ref heightData, ref waterData, out endT, out endKind, out endShared);
                     else if (!TryResolveNativeEndpointWithLocalSurface(prepared.Prefab,
                                  command.End, info, ref nodes, ref edges, ref ownedNodes,
                                  ref ownedEdges, ref heightData, ref waterData,
@@ -161,10 +154,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
                     Entity placementDefinition = CreateNativeCourse(prepared.Prefab, command,
                         prepared.Curve, startSnap, startT, startKind, startElevation,
-                        endSnap, endT, endKind, endElevation);
+                        endSnap, endT, endKind, endElevation, startShared, endShared);
                     created.Add(placementDefinition);
-                    if (startKind == KindFree) batchNewNodes.Add(prepared.Curve.a);
-                    if (endKind == KindFree) batchNewNodes.Add(prepared.Curve.d);
+                    RegisterBatchNodes(placementDefinition, info, startKind, endKind, batchNewNodes);
                     if (!prepared.Point) batchEdges.Add(prepared.Curve);
                     realized.Add(new RealizedCourse
                     {
@@ -256,7 +248,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             }
             finally
             {
-                batchNewNodes.Dispose();
                 batchEdges.Dispose();
             }
         }

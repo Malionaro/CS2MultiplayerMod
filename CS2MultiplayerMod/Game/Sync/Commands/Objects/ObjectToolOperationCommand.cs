@@ -403,7 +403,10 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
             value.ElevationLeft = ReadBounded(reader, -100000f, 100000f, "endpoint elevation");
             value.ElevationRight = ReadBounded(reader, -100000f, 100000f, "endpoint elevation");
             value.CourseDelta = ReadBounded(reader, -2f, 3f, "course delta");
-            value.SplitPosition = ReadBounded(reader, -2f, 3f, "split position");
+            // Not 0..1: a node-snapped endpoint carries the control point's extended curve
+            // parameter, which runs past 1 by however far the snap sat beyond the curve's end.
+            value.SplitPosition = ReadBounded(reader, -WireGuard.MaxSplitPosition,
+                WireGuard.MaxSplitPosition, "split position");
             value.Flags = unchecked((uint)reader.ReadInt());
             if ((value.Flags & ~KnownCoursePosFlags) != 0)
                 throw new ProtocolException("Unknown object course-position flags 0x" +

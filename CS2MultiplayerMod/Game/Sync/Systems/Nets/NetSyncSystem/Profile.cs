@@ -189,7 +189,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             if (command.FixedIndex >= 0) { _profileVerdict = "fixed-element net"; return false; }
             if (command.Start.ParentMesh >= 0 || command.End.ParentMesh >= 0)
             { _profileVerdict = "owned sub-net"; return false; }
-            if (command.Start.ElevationLeft < -1f || command.End.ElevationLeft < -1f)
+            if (math.max(command.Start.ElevationLeft, command.End.ElevationLeft) < -1f)
             { _profileVerdict = "tunnel"; return false; }
 
             Entity prefab;
@@ -197,26 +197,21 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             { _profileVerdict = "unknown prefab"; return false; }
             NetPrefabInfo info = NetInfoOf(prefab);
 
-            // A span whose own elevation bands its deck - a bridge raised a full elevation step or
-            // more, on two fixed-height ends - already reproduces: the generator holds every probe
-            // between the two transmitted endpoint heights, and those travel exactly. Pinning it
-            // would swap a deck the receiver derives correctly for one measured here. A free-height
-            // end takes that guarantee away: the band is anchored at the height the REALIZING
-            // machine resolves, so the span moves with its water however raised it looks.
+            // A single elevation bound leaves the deck dependent on local surfaces.
+            // Skip measurement only when both bounds already pin fixed endpoint heights.
             if (!NetWaterProfilePin.NeedsPin(command.Start.ElevationLeft, command.End.ElevationLeft,
                     info.ElevationLimit, info.RequireElevated,
                     ((CoursePosFlags)command.Start.Flags & CoursePosFlags.FreeHeight) != 0,
                     ((CoursePosFlags)command.End.Flags & CoursePosFlags.FreeHeight) != 0))
             {
                 _capSelfAnchoredSpans++;
-                _profileVerdict = "own elevation bands the deck";
+                _profileVerdict = "own elevation pins the deck";
                 _profileTraceWorthy = true;
                 return false;
             }
 
-            if (!NetWaterProfilePin.IsEligible(true, true, info.HasElevationRange,
-                    info.ElevationRangeMin, info.ElevationRangeMax, info.ElevationLimit))
-            { _profileVerdict = "prefab elevation range too narrow"; return false; }
+            if (!NetWaterProfilePin.IsEligible(true, true, info.ElevationLimit))
+            { _profileVerdict = "invalid profile elevation limit"; return false; }
 
             float2 range = new float2(command.Start.CourseDelta, command.End.CourseDelta);
             if (!math.isfinite(range.x) || !math.isfinite(range.y) || range.y <= range.x) return false;
@@ -272,7 +267,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
             NetWaterProfilePin.PredictDeck(_profileSurface, _profileTerrain, _profileDistance, probes,
                 startHeight, endHeight, command.Start.ElevationLeft, command.End.ElevationLeft,
-                info.ElevationLimit, info.MaxSlopeSteepness, _profileDeck);
+                info.ElevationLimit, info.MaxSlopeSteepness, _profileDeck, info.RequireElevated);
 
             _profileDeckReady = true;
             pieces = NetWaterProfilePin.Simplify(_profileDeck, _profileDistance, probes,
@@ -297,8 +292,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 _capSelfAnchoredSpans++;
                 return false;
             }
-            if (!NetWaterProfilePin.IsEligible(true, true, info.HasElevationRange,
-                    info.ElevationRangeMin, info.ElevationRangeMax, info.ElevationLimit))
+            if (!NetWaterProfilePin.IsEligible(true, true, info.ElevationLimit))
                 return false;
 
             float lengthXZ = MathUtils.Length(curve.xz);
@@ -342,8 +336,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             NetPrefabInfo info = NetInfoOf(prefab);
             bool startPinnable = EndpointPinnable(startSnap, startKind, startT, startY);
             bool endPinnable = EndpointPinnable(endSnap, endKind, endT, endY);
-            if (!NetWaterProfilePin.IsEligible(startPinnable, endPinnable, info.HasElevationRange,
-                    info.ElevationRangeMin, info.ElevationRangeMax, info.ElevationLimit))
+            if (!NetWaterProfilePin.IsEligible(startPinnable, endPinnable, info.ElevationLimit))
             {
                 _rzPinRefused++;
                 // A refused pin rebuilds its deck from local water, so say which end refused it and

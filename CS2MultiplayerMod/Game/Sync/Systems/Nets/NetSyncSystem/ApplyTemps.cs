@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Colossal.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
 using CS2MultiplayerMod.Game.Diagnostics;
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using Game.Common;
 using Game.Net;
 using Game.Tools;
@@ -19,6 +20,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
     // tool's output from consuming each other's entities.
     public partial class NetSyncSystem
     {
+        private readonly NetPreviewVisibility _isolatedLocalNetVisibility = new NetPreviewVisibility();
+
         private void DisableQueryEntities(EntityQuery query, List<Entity> destination)
         {
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
@@ -30,6 +33,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     if (!EntityManager.Exists(entity) || EntityManager.HasComponent<Disabled>(entity)) continue;
                     EntityManager.AddComponent<Disabled>(entity);
                     destination.Add(entity);
+                    // Hidden on an original survives Disabled on its preview. EdgeIterator then
+                    // omits the real adjoining road while generating the remote junction.
+                    if (ReferenceEquals(destination, _isolatedLocalTemps))
+                        _isolatedLocalNetVisibility.Suspend(EntityManager, entity);
                 }
             }
             finally
@@ -40,6 +47,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
         private void ReleaseTrackedTemps(List<Entity> entities)
         {
+            if (ReferenceEquals(entities, _isolatedLocalTemps))
+                _isolatedLocalNetVisibility.Restore(EntityManager, entities);
             for (int i = 0; i < entities.Count; i++)
             {
                 Entity entity = entities[i];
@@ -51,6 +60,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
         private int ClearTrackedTemps(List<Entity> entities, bool clearPreview)
         {
+            if (clearPreview && ReferenceEquals(entities, _isolatedLocalTemps))
+                _isolatedLocalNetVisibility.Forget();
             int cleared = 0;
             for (int i = 0; i < entities.Count; i++)
             {

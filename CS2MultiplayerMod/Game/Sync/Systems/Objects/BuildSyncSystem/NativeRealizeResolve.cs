@@ -42,6 +42,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             long now = Mod.Service != null ? Mod.Service.NowMs : capturedNow;
             _recentNativeObjectOperations.Remember(key, now, NativeObjectReplayRememberMs);
+            TrackCommittedRemoteBuildings(command, resolved);
             try
             {
                 if (command.IsAssetStamp)

@@ -9,6 +9,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
+using CS2MultiplayerMod.Core.Sync;
 using CS2MultiplayerMod.Core.Protocol.Messages;
 using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Diagnostics;
@@ -17,25 +18,23 @@ using CS2MultiplayerMod.Game.Sync.Commands;
 namespace CS2MultiplayerMod.Game.Sync.Systems
 {
     /// <summary>
-    /// Replicates zone painting in Block entities (one per road-edge side): detect Updated
-    /// cells at ModificationEnd and broadcast full zoning plus its source geometry. Realize at
-    /// ToolUpdate via <see cref="SyncRealizeSystem"/>, map visible source cells by world position
-    /// onto locally generated blocks, write zones, and tag those blocks Updated. Bursts are
-    /// latest-state coalesced and spread across frames; persistent content hashes suppress
-    /// unchanged Updated churn and replication echoes.
+    /// Replicates selected cells from native zoning commits. Sparse patches preserve unrelated
+    /// local edits and merge across bounded frame budgets. Receivers retain only unresolved
+    /// cells while their road/grid dependencies catch up.
     /// </summary>
     public partial class ZoneSyncSystem : GameSystemBase
     {
         private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
             new ConcurrentQueue<SimulationCommandMessage>();
-        private readonly ReplicationGuard _guard = new ReplicationGuard();
+        private readonly ActiveRetryClock _retryClock = new ActiveRetryClock();
         private readonly LatestByKeyQueue<ZoneBlockKey, ZonePaintCommand> _outgoing =
             new LatestByKeyQueue<ZoneBlockKey, ZonePaintCommand>();
         private readonly LatestByKeyQueue<ZoneBlockKey, ZonePaintCommand> _ready =
             new LatestByKeyQueue<ZoneBlockKey, ZonePaintCommand>();
 
         private PrefabSystem _prefabSystem;
-        private EntityQuery _updatedBlocks;
+        private EntityQuery _zonePreviews;
+        private ToolSystem _toolSystem;
         private EntityQuery _allBlocks;
         private EntityQuery _zonePrefabs;
         private CommandObserver _observer;
@@ -57,13 +56,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private const int MaxSendPerFrame = 16;
         private const int MaxApplyPerFrame = 24;
 
-        private struct PendingZone { public ZonePaintCommand Command; public long DeadlineMs; }
-
-        // Capture baselines make the full-block command idempotent across frames. Updated is a
-        // broad game tag and may recur even when zoning did not change. Entity identity prevents a
-        // rebuilt road block at the same position from inheriting a stale content baseline.
-        private readonly Dictionary<ZoneBlockKey, ZoneBaseline> _lastZoneStates =
-            new Dictionary<ZoneBlockKey, ZoneBaseline>();
+        private struct PendingZone
+        {
+            public ZonePaintCommand Command;
+            public long DeadlineMs;
+            public ResyncReport RecoveryReport;
+        }
 
         private struct ZoneBlockKey : System.IEquatable<ZoneBlockKey>
         {
@@ -92,12 +90,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
         }
 
-        private struct ZoneBaseline
-        {
-            public Entity Entity;
-            public int Hash;
-        }
-
         // Reusing the spatial index for a short window avoids rescanning every Block for every
         // source cell in a large zoning burst. Each list is pooled across rebuilds, and stale
         // entities are validated before use.
@@ -117,7 +109,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private int _diagnosticApplied;
         private int _diagnosticDeferred;
         private int _diagnosticExpired;
-        private bool _outgoingOverflowWarned;
+        private int _diagnosticUnzonable;
         private const long DiagnosticWindowMs = 5000;
 
         // ZoneType.m_Index <-> prefab name, rebuilt whenever an unknown index appears
@@ -131,17 +123,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             _prefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
 
-            _updatedBlocks = GetEntityQuery(new EntityQueryDesc
+            _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+            _zonePreviews = GetEntityQuery(new EntityQueryDesc
             {
-                All = SyncQuery.ReadOnly<Block, Cell, Updated>(),
-                None = new[]
-                {
-                    ComponentType.ReadOnly<Temp>(),
-                    ComponentType.ReadOnly<Deleted>(),
-                    // Newly created blocks (fresh road) start unzoned on every machine —
-                    // syncing them would only be noise.
-                    ComponentType.ReadOnly<Created>(),
-                },
+                All = SyncQuery.ReadOnly<Block, Cell, Temp>(),
+                None = SyncQuery.ReadOnly<Deleted>(),
             });
 
             _allBlocks = GetEntityQuery(new EntityQueryDesc
@@ -157,8 +143,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _observer = SyncObserverBinding.Bind(
                 () => new CommandObserver(_incoming, ZonePaintCommand.Id)
                     {
-                        // A legacy peer may still deliver a large one-frame zoning burst. Keep it
-                        // bounded, but large enough for this system's frame-budgeted coalescer.
+                        // A marquee can cover many blocks in one commit. Retain the burst while
+                        // the frame-budgeted patch coalescer catches up.
                         QueueCap = MaxIncomingZones,
                         MaxBodyBytes = ZonePaintCommand.MaxEncodedBytes,
                     },
@@ -177,11 +163,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _outgoing.Clear();
             _ready.Clear();
             _pending.Clear();
-            _guard.Clear();
+            _retryClock.Reset();
             ClearBlockLookup();
             _blockLookupBuilt = false;
             _lastRetryMs = 0;
-            _outgoingOverflowWarned = false;
         }
 
         protected override void OnUpdate()
@@ -195,8 +180,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 if (!service.GameplaySyncReady) return;
 
                 long now = service.NowMs;
-                _guard.Prune(now);
-                CaptureUpdatedBlocks(now);
+
                 FlushOutgoing(session);
                 FlushDiagnostics(now);
             }
@@ -212,6 +196,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (!service.GameplaySyncReady) return;
 
             long now = service.NowMs;
+            _retryClock.Observe(now, false);
 
             SimulationCommandMessage message;
             int examined = 0;
@@ -223,7 +208,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 {
                     ZonePaintCommand command = ZonePaintCommand.Decode(message.Body);
                     ZoneBlockKey key = StateKey(command);
-                    bool coalesced = _ready.ContainsKey(key) || _pending.Remove(key);
+                    ZonePaintCommand earlier;
+                    bool coalesced = _ready.TryGetValue(key, out earlier);
+                    if (coalesced) command.MergeEarlier(earlier);
+                    PendingZone pending;
+                    if (_pending.TryGetValue(key, out pending))
+                    {
+                        command.MergeEarlier(pending.Command);
+                        WithdrawZoneRecovery(pending, now);
+                        _pending.Remove(key);
+                        coalesced = true;
+                    }
                     if (!_ready.TrySetLatest(key, command, MaxIncomingZones))
                     {
                         RecoverFromQueueOverflow("zone ready-state coalescer overflow");
@@ -248,6 +243,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void RecoverFromQueueOverflow(string reason)
         {
             SyncInbox.Clear(_incoming);
+            _outgoing.Clear();
             _ready.Clear();
             _pending.Clear();
             SyncInbox.RequestResync(CS2MultiplayerMod.Game.Diagnostics.ResyncReport
@@ -265,12 +261,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             if (_diagnosticCaptured > 0 || _diagnosticSent > 0 ||
                 _diagnosticDecoded > 0 || _diagnosticApplied > 0 ||
-                _diagnosticDeferred > 0 || _diagnosticExpired > 0)
+                _diagnosticDeferred > 0 || _diagnosticExpired > 0 || _diagnosticUnzonable > 0)
             {
                 SyncLog.Detail(LogTopic.Land, "ZoneSync/5s: captured=" + _diagnosticCaptured +
                     " sent=" + _diagnosticSent + " decoded=" + _diagnosticDecoded + " coalesced=" +
                     _diagnosticCoalesced + " applied=" + _diagnosticApplied + " deferred=" +
-                    _diagnosticDeferred + " expired=" + _diagnosticExpired + " queues(out=" +
+                    _diagnosticDeferred + " expired=" + _diagnosticExpired + " unzonable=" +
+                    _diagnosticUnzonable + " queues(out=" +
                     _outgoing.Count + ", inbox=" + _incoming.Count + ", ready=" + _ready.Count +
                     ", retry=" + _pending.Count + ").");
             }
@@ -282,16 +279,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _diagnosticApplied = 0;
             _diagnosticDeferred = 0;
             _diagnosticExpired = 0;
+            _diagnosticUnzonable = 0;
             _diagnosticWindowStartMs = now;
         }
 
 
-        // Blocks we have ever seen zoned — lets us sync "unzone" without broadcasting the
-        // constant churn of never-zoned blocks.
-        private readonly HashSet<ZoneBlockKey> _zonedBlocks = new HashSet<ZoneBlockKey>();
-
-
-
+        internal void NotifyRealizeHeld(long now) => _retryClock.Observe(now, true);
 
         private string ResolveZoneName(ushort index)
         {
@@ -358,11 +351,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 SizeX = sizeX,
                 SizeY = sizeY,
             };
-
-        private static string BlockKey(ZoneBlockKey key, int contentHash) =>
-            "zone|" + key.Position + "|" + key.DirectionX + "|" + key.DirectionZ + "|" +
-            key.SizeX + "|" + key.SizeY + "|" + contentHash;
-
 
     }
 }

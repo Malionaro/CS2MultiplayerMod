@@ -23,7 +23,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             get
             {
                 MultiplayerService service = Mod.Service;
-                return service != null && service.GameplaySyncReady &&
+                return service != null && service.SimulationSyncReady &&
                        service.Session.Role == SessionRole.Client && _cache.Count != 0;
             }
         }

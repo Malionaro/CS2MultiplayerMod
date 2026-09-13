@@ -178,7 +178,7 @@ namespace CS2MultiplayerMod.Core.Session
             peer.AwaitingApproval = false;
             peer.Handshaked = true;
 
-            SendTo(connection, HandshakeResponse.Accept(peer.PlayerId));
+            SendTo(connection, HandshakeResponse.Accept(peer.PlayerId, _config.SimulationSync));
             _log.Event(LogTopic.Session, "Accepted " + peer + ": mod " +
                 (string.IsNullOrEmpty(peer.ModVersion) ? "?" : peer.ModVersion) + ", game " +
                 (string.IsNullOrEmpty(peer.GameVersion) ? "?" : peer.GameVersion) + ".");
@@ -340,8 +340,10 @@ namespace CS2MultiplayerMod.Core.Session
             }
 
             LocalPlayerId = response.AssignedPlayerId;
+            _hostSimulationSync = response.SimulationSync;
             if (peer != null) peer.Handshaked = true;
             _log.Event(LogTopic.Session, "Join accepted by host; assigned player #" + LocalPlayerId +
+                ", simulation sync " + (_hostSimulationSync ? "on" : "off") +
                 ". Waiting for host world stream.");
             SetStatus(SessionStatus.Connected, "Joined as player #" + LocalPlayerId);
             if (peer != null) NotifyPeerJoined(peer);

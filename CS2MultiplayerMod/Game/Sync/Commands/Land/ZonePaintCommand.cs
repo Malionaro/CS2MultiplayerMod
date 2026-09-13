@@ -5,7 +5,7 @@ using CS2MultiplayerMod.Core.Sync;
 namespace CS2MultiplayerMod.Game.Sync.Commands
 {
     /// <summary>
-    /// "The zoning covered by this block now looks like this." The source block geometry
+    /// "The player edited these cells." Unselected cells carry geometry only. The source block geometry
     /// gives every cell a portable world-space centre, so receivers can map cells onto their
     /// own generated block layout rather than assuming buffer indexes are identical. Zone
     /// types are carried as prefab names via a small per-message string table because
@@ -28,8 +28,8 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
         public const byte StateRoadBack = 1 << 4;
         public const byte StateShared = 1 << 5;
         public const byte StateOccupied = 1 << 6;
+        public const byte StateEdited = 1 << 7;
         public const byte StateRoadMask = StateRoadside | StateRoadLeft | StateRoadRight | StateRoadBack;
-        private const byte KnownStateMask = StateVisible | StateRoadMask | StateShared | StateOccupied;
 
         public float PosX, PosY, PosZ;
         public float DirX, DirZ;
@@ -105,6 +105,42 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
             CellStates != null && index >= 0 && index < CellStates.Length &&
             (CellStates[index] & StateVisible) != 0;
 
+        public bool IsCellEdited(int index) =>
+            CellStates != null && index >= 0 && index < CellStates.Length &&
+            (CellStates[index] & StateEdited) != 0;
+
+        /// <summary>Coalesce unsent/unapplied patches without losing disjoint edits in one block.</summary>
+        public void MergeEarlier(ZonePaintCommand earlier)
+        {
+            if (earlier == null) return;
+            if (SizeX != earlier.SizeX || SizeY != earlier.SizeY)
+                throw new ProtocolException("Cannot merge different zone block dimensions.");
+            var names = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < Cells.Length; i++)
+            {
+                ZonePaintCommand source = IsCellEdited(i) ? this : earlier;
+                if (!source.IsCellEdited(i))
+                {
+                    Cells[i] = NoneCell;
+                    continue;
+                }
+                byte sourceIndex = source.Cells[i];
+                CellStates[i] = source.CellStates[i];
+                if (sourceIndex == NoneCell) { Cells[i] = NoneCell; continue; }
+                string name = source.ZoneNames[sourceIndex];
+                int index = names.IndexOf(name);
+                if (index < 0)
+                {
+                    if (names.Count >= NoneCell)
+                        throw new ProtocolException("Merged zoning exceeds the zone-name table limit.");
+                    index = names.Count;
+                    names.Add(name);
+                }
+                Cells[i] = (byte)index;
+            }
+            ZoneNames = names.ToArray();
+        }
+
         /// <summary>Resolve one row-major source cell to its world-space centre.</summary>
         public bool TryGetCellCenter(int index, out float x, out float y, out float z)
         {
@@ -156,8 +192,8 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
             {
                 if (Cells[i] != NoneCell && Cells[i] >= ZoneNames.Length)
                     throw new ProtocolException("Zone cell references a missing zone name.");
-                if ((CellStates[i] & ~KnownStateMask) != 0)
-                    throw new ProtocolException("Zone cell contains unknown state flags.");
+                if (IsCellEdited(i) && !IsCellVisible(i))
+                    throw new ProtocolException("Edited zone cell must be visible at its source.");
             }
         }
 

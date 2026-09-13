@@ -18,6 +18,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
     {
         private const float NativeNodeResolveXZ = 2f;
         private const float NativeTargetResolveY = 3f;
+        private const float RelaxedNodeResolveXZ = 0.5f;
+        private const float RelaxedNodeResolveY = 8f;
         private const float NativeEdgeResolveXZ = 4f;
         private const float ExistingSplitNodeDistance = 1f;
 
@@ -85,7 +87,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// Normally the second pass covers utility nets only. Once an operation has spent a full
         /// retry window (<paramref name="allowMergedNodeSplit"/>, which is what marks the
         /// last-resort pass), it covers roads and rails too - see
-        /// <see cref="TryProjectEndpointToLocalSurface"/> for why that gap mattered.
+        /// <see cref="TryProjectEndpointToLocalSurface"/> for why that gap mattered. That same
+        /// last-resort pass then allows
+        /// <see cref="TryResolveNativeEndpointByIdentityOnly"/>, which drops the height test
+        /// entirely for an otherwise unambiguous node.
         /// </summary>
         private bool TryResolveNativeEndpointWithLocalSurface(Entity prefab,
             NetEndpointIntent intent, NetPrefabInfo placedInfo,
@@ -96,39 +101,109 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             out Entity target, out float splitT, out int kind, out bool usedLocalSurface)
         {
             usedLocalSurface = false;
+            NetEndpointIntent captured = intent;
             if (TryResolveNativeEndpoint(intent, placedInfo,
                     ref nodes, ref edges, ref ownedNodes, ref ownedEdges, allowMergedNodeSplit,
                     out target, out splitT, out kind))
                 return true;
 
-            if (intent.Kind != NetEndpointTargetKind.Node &&
-                intent.Kind != NetEndpointTargetKind.Edge)
-                return false;
-
-            float3 sourcePoint = new float3(intent.PosX, intent.PosY, intent.PosZ);
-            float2 sourceElevation = new float2(intent.ElevationLeft, intent.ElevationRight);
-            float3 projected;
-            if (!TryProjectEndpointToLocalSurface(prefab, placedInfo, sourcePoint,
-                    sourceElevation, allowMergedNodeSplit, ref heightData, ref waterData,
-                    out projected))
-                return false;
-
-            float deltaY = projected.y - intent.PosY;
-            intent.PosY = projected.y;
-            intent.AnchorY += deltaY;
-            if (intent.Kind == NetEndpointTargetKind.Edge)
+            if (intent.Kind == NetEndpointTargetKind.Node ||
+                intent.Kind == NetEndpointTargetKind.Edge)
             {
-                intent.TargetAy += deltaY;
-                intent.TargetBy += deltaY;
-                intent.TargetCy += deltaY;
-                intent.TargetDy += deltaY;
+                float3 sourcePoint = new float3(intent.PosX, intent.PosY, intent.PosZ);
+                float2 sourceElevation = new float2(intent.ElevationLeft, intent.ElevationRight);
+                float3 projected;
+                if (TryProjectEndpointToLocalSurface(prefab, placedInfo, sourcePoint,
+                        sourceElevation, allowMergedNodeSplit, ref heightData, ref waterData,
+                        out projected))
+                {
+                    float deltaY = projected.y - intent.PosY;
+                    intent.PosY = projected.y;
+                    intent.AnchorY += deltaY;
+                    if (intent.Kind == NetEndpointTargetKind.Edge)
+                    {
+                        intent.TargetAy += deltaY;
+                        intent.TargetBy += deltaY;
+                        intent.TargetCy += deltaY;
+                        intent.TargetDy += deltaY;
+                    }
+
+                    usedLocalSurface = TryResolveNativeEndpoint(intent, placedInfo,
+                        ref nodes, ref edges, ref ownedNodes, ref ownedEdges, allowMergedNodeSplit,
+                        out target, out splitT, out kind);
+                    if (usedLocalSurface) return true;
+                }
             }
 
-            bool resolved = TryResolveNativeEndpoint(intent, placedInfo,
-                ref nodes, ref edges, ref ownedNodes, ref ownedEdges, allowMergedNodeSplit,
-                out target, out splitT, out kind);
-            usedLocalSurface = resolved;
-            return resolved;
+            if (!allowMergedNodeSplit) return false;
+            return TryResolveNativeEndpointByIdentityOnly(captured, placedInfo, ref nodes,
+                ref ownedNodes, out target, out kind);
+        }
+
+        /// <summary>
+        /// Last-resort node match for an endpoint whose only disagreement with this world is
+        /// height. A node's committed height is derived locally, and the same junction has been
+        /// observed settling three to four metres apart on the two machines - just outside
+        /// <see cref="NativeTargetResolveY"/>, while the candidate sits at the captured XZ to
+        /// within a centimetre and carries the same prefab, layers, contract and owner. Replacing
+        /// the whole city over that is the wrong trade, so once the operation has spent a full
+        /// retry window the height window widens - but only onto a candidate that is unambiguous,
+        /// so stacked same-prefab nets are still refused.
+        /// </summary>
+        private bool TryResolveNativeEndpointByIdentityOnly(NetEndpointIntent intent,
+            NetPrefabInfo placedInfo, ref NodePool nodes, ref NodePool ownedNodes,
+            out Entity target, out int kind)
+        {
+            target = Entity.Null;
+            kind = KindReuseNode;
+            switch (intent.Kind)
+            {
+                case NetEndpointTargetKind.Node:
+                    target = FindNativeNodeIgnoringHeight(intent, placedInfo, ref nodes);
+                    return target != Entity.Null;
+                case NetEndpointTargetKind.OwnedNode:
+                    kind = KindReuseConnector;
+                    target = FindNativeNodeIgnoringHeight(intent, placedInfo, ref ownedNodes);
+                    return target != Entity.Null;
+                default:
+                    return false;
+            }
+        }
+
+        private Entity FindNativeNodeIgnoringHeight(NetEndpointIntent intent,
+            NetPrefabInfo placedInfo, ref NodePool nodes)
+        {
+            // Without a source prefab there is no portable identity left to stand in for height.
+            if (string.IsNullOrEmpty(intent.TargetPrefabName)) return Entity.Null;
+
+            float3 anchor = new float3(intent.AnchorX, intent.AnchorY, intent.AnchorZ);
+            Entity result = Entity.Null;
+            int matches = 0;
+            NetCellIndex.Enumerator candidates = nodes.Index.Near(anchor.xz, RelaxedNodeResolveXZ);
+            while (candidates.MoveNext())
+            {
+                int i = candidates.Current;
+                if (math.distance(nodes.Data[i].m_Position.xz, anchor.xz) > RelaxedNodeResolveXZ ||
+                    math.abs(nodes.Data[i].m_Position.y - anchor.y) > RelaxedNodeResolveY) continue;
+
+                Entity entity = nodes.Entities[i];
+                if (!EntityManager.Exists(entity) || EntityManager.HasComponent<Deleted>(entity) ||
+                    IsNodeBeingDeleted(entity)) continue;
+                if (!TargetPrefabMatches(entity, intent.TargetPrefabName) ||
+                    !TargetContractMatches(entity, intent) ||
+                    !TargetOwnerMatches(entity, intent)) continue;
+                if (EntityManager.HasComponent<PrefabRef>(entity))
+                {
+                    NetPrefabInfo targetInfo = NetInfoOf(
+                        EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab);
+                    if (!LayersCanConnect(placedInfo, targetInfo)) continue;
+                }
+
+                // A second candidate means height was the discriminator after all.
+                if (++matches > 1) return Entity.Null;
+                result = entity;
+            }
+            return result;
         }
 
         /// <summary>

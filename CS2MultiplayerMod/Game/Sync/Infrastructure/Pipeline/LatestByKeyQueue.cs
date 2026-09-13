@@ -22,6 +22,18 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
 
         public bool ContainsKey(TKey key) => _entries.ContainsKey(key);
 
+        public bool TryGetValue(TKey key, out TValue value)
+        {
+            Entry entry;
+            if (_entries.TryGetValue(key, out entry))
+            {
+                value = entry.Value;
+                return true;
+            }
+            value = default(TValue);
+            return false;
+        }
+
         /// <summary>
         /// Add a new key or replace its queued value. Existing keys can always be replaced even
         /// when the queue is at capacity.

@@ -95,6 +95,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// </summary>
         public bool HasArmedToolCommit => _pendingApply;
 
+        /// <summary>
+        /// True once <see cref="BeginRealizeFrame"/> has stood the armed remote batch down so this
+        /// frame's local Apply can commit. The local preview therefore DOES become world state,
+        /// and capture must publish it - see <c>CaptureLocalObjectApplyBeforeToolOutput</c>.
+        /// </summary>
+        public bool LocalToolOutputProtectedThisFrame => _localToolOutputProtectedThisFrame;
+
         /// <summary>True only on the ToolUpdate frame an isolated object graph was committed.</summary>
         public bool DidCommitObjectGraphThisFrame => _objectCommitThisFrame;
 

@@ -439,12 +439,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         protected override void OnUpdate()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady)
+            if (service == null || !service.SimulationSyncReady)
             {
-                // A world-sync barrier closes GameplaySyncReady before installing a replacement
-                // world. Keep client authority held throughout that gap; briefly re-enabling the
+                // A world-sync barrier closes the gate before installing a replacement world.
+                // Keep client authority held throughout that gap; briefly re-enabling the
                 // lifecycle systems is enough for them to create or evict a family before the
-                // first new roster arrives.
+                // first new roster arrives. ApplyLocalAuthority still releases the hold when the
+                // session is running without simulation sync at all.
                 if (service != null && service.Session.Role == SessionRole.Client)
                     ApplyLocalAuthority(service.Session);
                 else

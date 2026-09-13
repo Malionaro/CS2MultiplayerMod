@@ -48,8 +48,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// system the game re-enables on a state change does not quietly start populating houses
         /// this peer's own way again.
         /// </summary>
-        private void ApplyLocalAuthority(MultiplayerSession session) =>
+        private void ApplyLocalAuthority(MultiplayerSession session)
+        {
+            // A session hosted with simulation sync off never announces these decisions, so
+            // holding the local systems would leave this city unable to make them either.
+            if (!session.SimulationSyncEnabled)
+            {
+                RestoreLocalAuthority();
+                return;
+            }
             _authority.Apply(World, session);
+        }
 
         /// <summary>
         /// Gives the local simulation its population back when the session ends. Without this a

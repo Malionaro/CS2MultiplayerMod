@@ -213,6 +213,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             SyncInbox.Clear(_incoming);
             _attachRetry.Clear();
             DrainNativeObjectOperations();
+            ClearBuildingIntegrations();
             _cachedLocalObjectOperation = null;
             ClearRecentLocalObjectOperations();
             ClearPlayerPlacedSpawnables();
@@ -271,6 +272,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _guard.Prune(now);
                     TryPublishCommittedObjectGraph(now);
                     CaptureNewObjects(session, now);
+                    ObserveBuildingIntegrations(now);
                 }
                 else DrainQueue();
                 _localObjectApplyThisFrame = false;
@@ -404,7 +406,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             MultiplayerSession session = service.Session;
             if (service.GameplaySyncReady)
+            {
+                ApplyBuildingIntegrationRefreshes(service.NowMs);
                 RealizeIncoming(session, service.NowMs);
+            }
         }
 
         // Periodic summary of what the detector captured — reveals over-capture severity

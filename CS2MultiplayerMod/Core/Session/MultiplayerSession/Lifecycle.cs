@@ -164,6 +164,7 @@ namespace CS2MultiplayerMod.Core.Session
                 Role = SessionRole.Client;
                 _challengeAnswered = false;
                 _awaitingHostApproval = false;
+                _hostSimulationSync = true;
                 EncryptionActive = config.UseEncryption;
 
                 var client = new TcpClientTransport(_log);
@@ -209,6 +210,7 @@ namespace CS2MultiplayerMod.Core.Session
             Role = SessionRole.Client;
             _challengeAnswered = false;
             _awaitingHostApproval = false;
+            _hostSimulationSync = true;
             EncryptionActive = true;
 
             _transport = relay.CreateClient(_log, config.JoinCode);
@@ -292,6 +294,7 @@ namespace CS2MultiplayerMod.Core.Session
             LocalPlayerId = 0;
             _nextPlayerId = HostPlayerId + 1;
             _awaitingHostApproval = false;
+            _hostSimulationSync = true;
             EncryptionActive = false;
             _worldSyncSuspended = false;
             _worldSyncEpoch = 0;

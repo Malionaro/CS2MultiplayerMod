@@ -26,6 +26,13 @@ namespace CS2MultiplayerMod.Core.Protocol
         public const int MaxItemCount = 4096;
 
         /// <summary>
+        /// Sanity bound for a course endpoint's split position. Not a semantic range: the value is
+        /// an extended curve parameter that runs past 1 by however far a snap sat beyond the
+        /// curve's end, and every consumer clamps it to 0..1 before use.
+        /// </summary>
+        public const float MaxSplitPosition = 1000f;
+
+        /// <summary>
         /// Read repeat count as 16-bit value, prove it's plausible: non-negative,
         /// under <paramref name="maxItems"/>, and bytesPerItem x count fits remaining
         /// bytes - so forged count can never cause huge allocation.

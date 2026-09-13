@@ -21,17 +21,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     public partial class OwnerDefinitionSnapshotSystem : GameSystemBase
     {
         private NetSyncSystem _netSync;
-        private EntityQuery _describedTemps;
+        private BuildSyncSystem _buildSync;
+        private EntityQuery _describedEntities;
 
         protected override void OnCreate()
         {
             base.OnCreate();
             _netSync = World.GetOrCreateSystemManaged<NetSyncSystem>();
-            _describedTemps = GetEntityQuery(new EntityQueryDesc
+            _buildSync = World.GetOrCreateSystemManaged<BuildSyncSystem>();
+            _describedEntities = GetEntityQuery(new EntityQueryDesc
             {
-                All = SyncQuery.ReadOnly<OwnerDefinition, Owner, Temp>(),
+                All = SyncQuery.ReadOnly<OwnerDefinition, Owner>(),
             });
-            RequireForUpdate(_describedTemps);
+            RequireForUpdate(_describedEntities);
         }
 
         protected override void OnUpdate()
@@ -40,20 +42,50 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 MultiplayerService service = Mod.Service;
                 if (service == null || !service.GameplaySyncReady) return;
-                if (_netSync == null || !_netSync.HasArmedToolCommit) return;
 
-                NativeArray<Entity> entities = _describedTemps.ToEntityArray(Allocator.Temp);
+                NativeArray<Entity> entities = _describedEntities.ToEntityArray(Allocator.Temp);
                 try
                 {
-                    _netSync.BeginOwnerDescriptionSnapshot(entities.Length);
-                    for (int i = 0; i < entities.Length; i++)
+                    int tempCount = 0;
+                    if (_netSync != null && _netSync.HasArmedToolCommit)
                     {
-                        Entity entity = entities[i];
-                        OwnerDefinition described =
-                            EntityManager.GetComponentData<OwnerDefinition>(entity);
-                        if (described.m_Prefab == Entity.Null) continue;
-                        _netSync.RecordOwnerDescription(entity, described.m_Prefab, described.m_Position);
+                        for (int i = 0; i < entities.Length; i++)
+                            if (EntityManager.HasComponent<Temp>(entities[i])) tempCount++;
+                        _netSync.BeginOwnerDescriptionSnapshot(tempCount);
                     }
+
+                    int permanentRelinks = 0;
+                    if (_buildSync != null) _buildSync.BeginExpectedBuildingOwnerRelinks();
+                    try
+                    {
+                        for (int i = 0; i < entities.Length; i++)
+                        {
+                            Entity entity = entities[i];
+                            OwnerDefinition described =
+                                EntityManager.GetComponentData<OwnerDefinition>(entity);
+                            if (described.m_Prefab == Entity.Null) continue;
+                            if (EntityManager.HasComponent<Temp>(entity))
+                            {
+                                if (_netSync != null && _netSync.HasArmedToolCommit)
+                                    _netSync.RecordOwnerDescription(entity, described.m_Prefab,
+                                        described.m_Position);
+                            }
+                            else if (_buildSync != null &&
+                                     _buildSync.TryRelinkExpectedBuildingOwner(entity,
+                                         described.m_Prefab, described.m_Position,
+                                         described.m_Rotation))
+                            {
+                                permanentRelinks++;
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        if (_buildSync != null) _buildSync.EndExpectedBuildingOwnerRelinks();
+                    }
+                    if (permanentRelinks > 0)
+                        SyncLog.Trace(LogTopic.Buildings,
+                            "remote building owner links restored=" + permanentRelinks);
                 }
                 finally
                 {

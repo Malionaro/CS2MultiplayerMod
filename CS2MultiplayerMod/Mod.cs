@@ -234,11 +234,9 @@ namespace CS2MultiplayerMod
             // they also produce the figures and demand the rest of the simulation reads.
             updateSystem.UpdateBefore<Game.Sync.Systems.CompanyLifecycleBoundarySystem,
                 global::Game.Simulation.CompanyMoveAwaySystem>(SystemUpdatePhase.GameSimulation);
-            // Directly after the game's own company bookkeeping, at that system's own interval and
-            // over that system's own UpdateFrame partition. This ordering IS the feature: an
-            // earlier attempt corrected on a 1024-frame rotation while CompanyEconomyStatisticSystem
-            // rewrites the same fields every 128 frames, so every correction was overwritten
-            // several times over before the next one arrived and the panels never settled.
+            // The host captures company bookkeeping at its native cadence. Clients hold the
+            // accounting calculator and consume host figures; keep this partition schedule for
+            // capture and for repairing fields also touched by other local company systems.
             updateSystem.UpdateAfter<Game.Sync.Systems.CompanyStatsSyncSystem,
                 global::Game.Simulation.CompanyEconomyStatisticSystem>(
                 SystemUpdatePhase.GameSimulation);
@@ -298,6 +296,9 @@ namespace CS2MultiplayerMod
             // from a tool apply are still alive (they are gone by GameSimulation).
             updateSystem.UpdateAt<Game.Sync.Systems.BuildSyncSystem>(SystemUpdatePhase.ModificationEnd);
             updateSystem.UpdateAt<Game.Sync.Systems.Net.NetSyncSystem>(SystemUpdatePhase.ModificationEnd);
+            // Edge-only refreshes must include their junctions before native network processing.
+            updateSystem.UpdateBefore<Game.Sync.Systems.Net.NetJunctionRefreshSystem,
+                global::Game.Net.ReferencesSystem>(SystemUpdatePhase.Modification2B);
             updateSystem.UpdateAt<Game.Sync.Systems.DeleteSyncSystem>(SystemUpdatePhase.ModificationEnd);
             // After DeleteSyncSystem, which collects this frame's tool-originated removals first:
             // a bulldozed zoned building is a player action and already travels as a delete, so

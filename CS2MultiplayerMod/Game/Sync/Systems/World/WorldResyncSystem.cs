@@ -57,6 +57,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private readonly HashSet<int> _loaded = new HashSet<int>();
         private readonly HashSet<int> _pendingJoinRequests = new HashSet<int>();
         private readonly List<ConnectionId> _joiningParticipants = new List<ConnectionId>();
+        private readonly List<ConnectionId> _snapshotTargets = new List<ConnectionId>();
 
         private NetSyncSystem _netSync;
         private Observer _observer;
@@ -64,6 +65,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private RecoveryState _state;
         private bool _recoveryRequested;
         private bool _rerunRequested;
+        private bool _fullSnapshotRequested;
         private long _epochCounter;
         private long _epoch;
         private long _deadlineMs;
@@ -112,7 +114,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (_lastResyncMs < 0 || !HasPeers(session))
                         _lastResyncMs = now;
                     else if (now - _lastResyncMs >= service.ResyncIntervalMs)
+                    {
                         _recoveryRequested = true;
+                        _fullSnapshotRequested = true;
+                    }
 
                     if (_recoveryRequested) StartEpoch(service, session, now);
                     return;
@@ -163,6 +168,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _joiningParticipants.Clear();
             _recoveryRequested = false;
             _rerunRequested = false;
+            _fullSnapshotRequested = false;
+            _snapshotTargets.Clear();
             _epoch = 0;
             _deadlineMs = 0;
             _cleanFrames = 0;
@@ -176,6 +183,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 if (request.IsJoin && !request.Connection.IsNone)
                     _pendingJoinRequests.Add(request.Connection.Value);
+                else if (!request.IsJoin)
+                    _fullSnapshotRequested = true;
                 if (_state == RecoveryState.Idle) _recoveryRequested = true;
                 else _rerunRequested = true;
             }
@@ -226,6 +235,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _joiningParticipants.Add(_participants[i]);
             service.PrepareHostWorldSyncUi(_joiningParticipants);
 
+            // A join only owes the world to whoever joined; everyone else is already holding it
+            // and just crosses the barrier. Divergence-driven and periodic epochs re-baseline
+            // every peer, which is the whole point of them.
+            _snapshotTargets.Clear();
+            if (_fullSnapshotRequested || _joiningParticipants.Count == 0)
+                _snapshotTargets.AddRange(_participants);
+            else
+                _snapshotTargets.AddRange(_joiningParticipants);
+            _fullSnapshotRequested = false;
+
             _epoch = ++_epochCounter;
             if (!service.TryBeginHostWorldSync(_epoch, out _resumeSpeed))
             {
@@ -233,7 +252,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 ResetEpoch(now);
                 return;
             }
-            if (!session.BeginWorldSync(_epoch, _resumeSpeed, _participants))
+            if (!session.BeginWorldSync(_epoch, _resumeSpeed, _participants, _snapshotTargets))
             {
                 service.AbortHostWorldSync(_epoch, _resumeSpeed);
                 SyncLog.Error(LogTopic.Resync, "Could not open world-sync epoch " + _epoch + ".");
@@ -321,15 +340,21 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
             string saveName = MultiplayerService.WorldSnapshotFileName;
 
-            for (int i = 0; i < _participants.Count; i++)
-                service.StreamWorldSnapshot(_participants[i], _epoch, snapshot, saveName);
+            for (int i = 0; i < _snapshotTargets.Count; i++)
+                service.StreamWorldSnapshot(_snapshotTargets[i], _epoch, snapshot, saveName);
 
             _loaded.Clear();
+            // Barrier-only participants install nothing, so they never acknowledge a load. They
+            // are already where the snapshot would have put them.
+            for (int i = 0; i < _participants.Count; i++)
+                if (!_snapshotTargets.Contains(_participants[i]))
+                    _loaded.Add(_participants[i].Value);
             _deadlineMs = now + LoadTimeoutMs;
             _state = RecoveryState.WaitingForLoaded;
             service.SetHostWorldSyncUiStage(HostWorldSyncUiStage.WaitingForLoaded);
             SyncLog.Event(LogTopic.Resync, "World sync epoch " + _epoch + ": queued one " +
-                (snapshot.Length / 1024) + " KB snapshot for " + _participants.Count +
+                (snapshot.Length / 1024) + " KB snapshot for " + _snapshotTargets.Count +
+                " of " + _participants.Count +
                 " participant(s); waiting for load acknowledgement(s). Save took " +
                 (now - _saveStartMs) + " ms.");
         }
@@ -353,7 +378,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void CompleteEpoch(MultiplayerService service, MultiplayerSession session, long now)
         {
             var targets = new List<ConnectionId>(_participants);
-            bool needsRerun = _rerunRequested && HasNewParticipant(session, targets);
+            // A peer that asked for a world mid-epoch is not a new participant, so it would
+            // otherwise be left waiting: this epoch may only have streamed to whoever joined.
+            bool needsRerun = _rerunRequested &&
+                (_fullSnapshotRequested || HasNewParticipant(session, targets));
             // Resume is queued first. Session command sends are reopened only afterward, preserving
             // Resume-before-command order on every TCP connection.
             session.ResumeWorldSync(_epoch, _resumeSpeed, targets);
@@ -395,6 +423,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _quiesced.Clear();
             _loaded.Clear();
             _joiningParticipants.Clear();
+            _snapshotTargets.Clear();
             _epoch = 0;
             _deadlineMs = 0;
             _cleanFrames = 0;
@@ -439,6 +468,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void RemoveParticipant(ConnectionId connection)
         {
             _participants.Remove(connection);
+            _snapshotTargets.Remove(connection);
             _quiesced.Remove(connection.Value);
             _loaded.Remove(connection.Value);
         }
@@ -504,7 +534,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     Connection = connection,
                     IsJoin = false,
                 });
-                SyncLog.Event(LogTopic.Resync, "Queued atomic world-sync request from player #" +
+                SyncLog.Event(LogTopic.Resync, "Queued atomic world-sync for peer #" +
                     playerId + ".");
             }
 

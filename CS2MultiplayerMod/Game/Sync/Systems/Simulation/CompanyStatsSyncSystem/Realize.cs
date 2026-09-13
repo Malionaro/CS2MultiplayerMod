@@ -30,7 +30,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void PumpIncoming()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
             if (service.Session.Role == SessionRole.Host)
             {
                 DropIncomingPages();
@@ -336,7 +336,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void ApplyClientStateBoundary()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != SessionRole.Client) return;
 
             PumpIncoming();
@@ -354,7 +354,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             get
             {
                 MultiplayerService service = Mod.Service;
-                return service != null && service.GameplaySyncReady &&
+                return service != null && service.SimulationSyncReady &&
                        service.Session.Role == SessionRole.Client && _cache.Count != 0;
             }
         }
@@ -364,7 +364,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             get
             {
                 MultiplayerService service = Mod.Service;
-                return service != null && service.GameplaySyncReady;
+                return service != null && service.SimulationSyncReady;
             }
         }
 
@@ -989,7 +989,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private bool ReconcileEmployeeBuffer(Entity company, bool absolute)
         {
             _employeeRemovalScratch.Clear();
-            DynamicBuffer<Employee> employees = EntityManager.GetBuffer<Employee>(company);
+            var employees = new BufferEdit<Employee>(EntityManager, company);
             bool changed = false;
             if (absolute)
             {
@@ -1147,7 +1147,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             WorkProvider provider = EntityManager.GetComponentData<WorkProvider>(company);
             WorkplaceData workplace = EntityManager.GetComponentData<WorkplaceData>(companyPrefab);
-            DynamicBuffer<Employee> employees = EntityManager.GetBuffer<Employee>(company);
+            DynamicBuffer<Employee> employees = EntityManager.GetBuffer<Employee>(company, true);
             FreeWorkplaces free = EntityManager.GetComponentData<FreeWorkplaces>(company);
             free.Refresh(employees, provider.m_MaxWorkers, workplace.m_Complexity, level);
             EntityManager.SetComponentData(company, free);

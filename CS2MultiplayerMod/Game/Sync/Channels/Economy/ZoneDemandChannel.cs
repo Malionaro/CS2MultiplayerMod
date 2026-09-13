@@ -118,6 +118,11 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
 
         public bool Capture(EntityManager em, NetworkWriter writer)
         {
+            // Demand is an output of the zoning simulation, so a session that lets each city run
+            // its own has nothing to say here.
+            MultiplayerService captureService = Mod.Service;
+            if (captureService != null && !captureService.SimulationSyncEnabled) return false;
+
             Ensure(em);
             var residential = em.World.GetExistingSystemManaged<ResidentialDemandSystem>();
             var commercial = em.World.GetExistingSystemManaged<CommercialDemandSystem>();
@@ -255,6 +260,13 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
 
             _world = em.World;
             MultiplayerService service = Mod.Service;
+            if (service != null && !service.SimulationSyncEnabled)
+            {
+                // A page from before the switch was read, or from a peer that is still sending
+                // them. The local demand writers own these values now; do not fight them.
+                _authority.Restore(em.World);
+                return;
+            }
             if (service != null && service.GameplaySyncReady)
                 _authority.Apply(em.World, service.Session);
             try
@@ -350,7 +362,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         {
             _world = em.World;
             MultiplayerService service = Mod.Service;
-            if (_hasAuthoritativeSnapshot && service != null && service.GameplaySyncReady &&
+            if (_hasAuthoritativeSnapshot && service != null && service.SimulationSyncReady &&
                 service.Session.Role == SessionRole.Client)
                 _authority.Apply(em.World, service.Session);
             else

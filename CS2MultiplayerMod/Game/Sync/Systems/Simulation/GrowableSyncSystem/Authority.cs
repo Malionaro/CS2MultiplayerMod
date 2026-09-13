@@ -27,8 +27,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// Hands the growable lifecycle to the host. Idempotent, and re-checked every frame so a
         /// system the game re-enables on a state change does not quietly start growing again.
         /// </summary>
-        private void ApplyLocalAuthority(MultiplayerSession session) =>
+        private void ApplyLocalAuthority(MultiplayerSession session)
+        {
+            // A session hosted with simulation sync off never announces these decisions, so
+            // holding the local systems would leave this city unable to make them either.
+            if (!session.SimulationSyncEnabled)
+            {
+                RestoreLocalAuthority();
+                return;
+            }
             _authority.Apply(World, session);
+        }
 
         /// <summary>
         /// Gives the local simulation its buildings back when the session ends. Without this a

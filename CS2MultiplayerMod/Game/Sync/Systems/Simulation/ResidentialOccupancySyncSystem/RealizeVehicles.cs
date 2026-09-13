@@ -1,3 +1,4 @@
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -174,8 +175,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             if (wanted.Length == 0 ||
                 !EntityManager.HasBuffer<RandomLocalizationIndex>(entity)) return;
-            DynamicBuffer<RandomLocalizationIndex> indices =
-                EntityManager.GetBuffer<RandomLocalizationIndex>(entity);
+            var indices = new BufferEdit<RandomLocalizationIndex>(EntityManager, entity);
             // The local buffer is sized from this peer's own prefab, and the host's name lists are
             // the same content. Write the slots both sides have and leave any extra alone.
             int count = math.min(indices.Length, wanted.Length);

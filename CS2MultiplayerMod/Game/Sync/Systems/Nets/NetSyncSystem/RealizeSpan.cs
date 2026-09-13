@@ -145,12 +145,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// reuse, or edge to split, or Entity.Null) and, via out params, the split parameter and the
         /// <c>Kind*</c> classification.
         /// </summary>
-        private Entity ClassifyEndpoint(float3 p, NetPrefabInfo placedInfo,
+        private Entity ClassifyEndpoint(float3 p, uint flags, NetPrefabInfo placedInfo,
             ref NodePool nodes, ref EdgePool edges, ref NodePool ownedNodes,
-            NativeList<float3> batchNewNodes, NativeList<Bezier4x3> batchEdges,
-            out float t, out int kind)
+            NetBatchNodes batchNewNodes, NativeList<Bezier4x3> batchEdges,
+            out float t, out int kind, out CoursePos? sharedNode)
         {
             t = 0f;
+            sharedNode = null;
             Entity node = FindNodeAt(p, placedInfo, ref nodes);
             if (node != Entity.Null) { kind = KindReuseNode; return node; }
             // A power line / pipe endpoint lying on a building's connector stub connects to it —
@@ -160,9 +161,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                 node = FindUtilityNodeAt(p, ref ownedNodes, placedInfo);
                 if (node != Entity.Null) { kind = KindReuseConnector; return node; }
             }
-            // Coincides with a new node another course in this batch creates -> leave it as a fresh node
-            // (Entity.Null) and let GenerateNodesSystem merge the two by exact position.
-            if (NearAny(p, batchNewNodes, NodeSnapDistance)) { kind = KindMergeBatch; return Entity.Null; }
+            // Carry the actual shared endpoint into course creation. Merely returning Entity.Null
+            // for nearby positions leaves two different native node keys and disconnected geometry.
+            if (batchNewNodes.TryFind(p, flags, (uint)placedInfo.RequiredLayers,
+                    (uint)placedInfo.ConnectLayers, NodeSnapDistance, VerticalSnapTol, out sharedNode))
+            { kind = KindMergeBatch; return Entity.Null; }
             // Taps the middle of an edge this batch is still building -> can't split a not-yet-real edge;
             // defer the whole course to the next cycle, where that edge is real and this becomes a split.
             if (MidSpanOfAnyBatch(p, batchEdges)) { kind = KindDeferBatchEdge; return Entity.Null; }
@@ -183,14 +186,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// first result for every other case preserves bridge/tunnel level separation.
         /// </summary>
         private Entity ClassifyEndpointWithLocalSurface(Entity prefab, float3 sourcePoint,
-            float2 sourceElevation, NetPrefabInfo placedInfo,
+            float2 sourceElevation, uint flags, NetPrefabInfo placedInfo,
             ref NodePool nodes, ref EdgePool edges, ref NodePool ownedNodes,
-            NativeList<float3> batchNewNodes, NativeList<Bezier4x3> batchEdges,
+            NetBatchNodes batchNewNodes, NativeList<Bezier4x3> batchEdges,
             ref TerrainHeightData heightData, ref WaterSurfaceData<SurfaceWater> waterData,
-            out float t, out int kind)
+            out float t, out int kind, out CoursePos? sharedNode)
         {
-            Entity result = ClassifyEndpoint(sourcePoint, placedInfo, ref nodes, ref edges,
-                ref ownedNodes, batchNewNodes, batchEdges, out t, out kind);
+            Entity result = ClassifyEndpoint(sourcePoint, flags, placedInfo, ref nodes, ref edges,
+                ref ownedNodes, batchNewNodes, batchEdges, out t, out kind, out sharedNode);
             if (kind != KindFree) return result;
 
             float3 projected;
@@ -203,13 +206,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
 
             float projectedT;
             int projectedKind;
-            Entity projectedResult = ClassifyEndpoint(projected, placedInfo,
+            CoursePos? projectedNode;
+            Entity projectedResult = ClassifyEndpoint(projected, flags, placedInfo,
                 ref nodes, ref edges, ref ownedNodes, batchNewNodes, batchEdges,
-                out projectedT, out projectedKind);
+                out projectedT, out projectedKind, out projectedNode);
             if (projectedKind == KindFree) return result;
 
             t = projectedT;
             kind = projectedKind;
+            sharedNode = projectedNode;
             _rzLocalSurfaceMatches++;
             return projectedResult;
         }
@@ -277,22 +282,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             JobHandle waterDeps;
             waterData = _waterSystem.GetSurfaceData(out waterDeps);
             waterDeps.Complete();
-        }
-
-        /// <summary>
-        /// True when <paramref name="p"/> lies within <paramref name="tol"/> (XZ) of any point at a
-        /// matching height. The height gate mirrors the game's node merge, which is by position - a
-        /// batch containing both a ground road and a bridge above it must not classify the bridge's
-        /// endpoint as merging with the ground node.
-        /// </summary>
-        private static bool NearAny(float3 p, NativeList<float3> points, float tol)
-        {
-            float2 xz = p.xz;
-            float tolSq = tol * tol;
-            for (int i = 0; i < points.Length; i++)
-                if (math.distancesq(xz, points[i].xz) < tolSq
-                    && math.abs(points[i].y - p.y) <= VerticalSnapTol) return true;
-            return false;
         }
 
         /// <summary>

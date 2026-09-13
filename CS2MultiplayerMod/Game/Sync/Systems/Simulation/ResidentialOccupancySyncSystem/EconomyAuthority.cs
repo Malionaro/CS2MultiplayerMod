@@ -102,7 +102,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             get
             {
                 MultiplayerService service = Mod.Service;
-                return service != null && service.GameplaySyncReady &&
+                return service != null && service.SimulationSyncReady &&
                        service.Session.Role == SessionRole.Client &&
                        _desiredHouseholdEconomies.Count != 0;
             }
@@ -140,7 +140,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CorrectHouseholdEconomyAfterLocalUpdate()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != SessionRole.Client)
             {
                 ClearHouseholdEconomyCorrections();
@@ -212,10 +212,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             if (EntityManager.HasBuffer<Resources>(household))
             {
-                DynamicBuffer<Resources> resources = EntityManager.GetBuffer<Resources>(household);
+                DynamicBuffer<Resources> resources = EntityManager.GetBuffer<Resources>(household, true);
                 if (EconomyUtils.GetResources(Resource.Money, resources) != wanted.Money)
                 {
-                    EconomyUtils.SetResources(Resource.Money, resources, wanted.Money);
+                    EconomyUtils.SetResources(Resource.Money,
+                        EntityManager.GetBuffer<Resources>(household), wanted.Money);
                     changed = true;
                 }
             }

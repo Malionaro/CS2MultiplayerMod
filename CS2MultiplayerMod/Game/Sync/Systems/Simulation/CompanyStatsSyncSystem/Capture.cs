@@ -21,7 +21,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             if (writer == null) return false;
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != SessionRole.Host) return false;
 
             if (_hostSweepEntities == null && !BeginHostSweep()) return WriteEmptySweep(writer);
@@ -269,7 +269,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CaptureTenancyChanges()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 _renterUpdates.IsEmptyIgnoreFilter) return;
 
             NativeArray<RentersUpdated> updates = default(NativeArray<RentersUpdated>);
@@ -311,7 +311,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CaptureEmployeeChanges(NativeArray<Entity> companies)
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
 
             for (int i = 0; i < companies.Length; i++)
             {
@@ -364,7 +364,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CaptureEfficiencyChanges(NativeArray<Entity> properties)
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
 
             bool host = service.Session.Role == SessionRole.Host;
             Dictionary<Entity, int> observed = host
@@ -418,7 +418,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CaptureExtractorProduceChanges(NativeArray<Entity> companies)
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
 
             bool host = service.Session.Role == SessionRole.Host;
             int signalled = 0;

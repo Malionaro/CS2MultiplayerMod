@@ -231,7 +231,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             // endpoint that coincides with one of our pending new nodes — it will MERGE, so it is not
             // a split — and (b) an endpoint that taps the middle of a pending batch edge, which must
             // wait until that edge is real (deferred to the next, post-commit cycle).
-            var batchNewNodes = new NativeList<float3>(maxBatch, Allocator.Temp);
+            var batchNewNodes = new NetBatchNodes();
             var batchEdges = new NativeList<Bezier4x3>(maxBatch, Allocator.Temp);
             try
             {
@@ -663,17 +663,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     int startKind, endKind;
                     float startT, endT;
                     Entity startSnap, endSnap;
+                    CoursePos? startShared = null, endShared = null;
                     bool nativeTargetsResolved = true;
                     bool startUsedLocalSurface = false, endUsedLocalSurface = false;
 
                     if (command.HasNativeCourse)
                     {
                         if (command.Start.Kind == NetEndpointTargetKind.Infer)
-                            startSnap = ClassifyEndpointWithLocalSurface(prefab, a,
-                                sourceStartElevation, placedInfo, ref nodes, ref edges,
+                            startSnap = ClassifyEndpointWithLocalSurface(prefab,
+                                new float3(command.Start.PosX, command.Start.PosY, command.Start.PosZ),
+                                sourceStartElevation, command.Start.Flags, placedInfo, ref nodes, ref edges,
                                 ref ownedNodes, batchNewNodes, batchEdges,
                                 ref heightData, ref waterData,
-                                out startT, out startKind);
+                                out startT, out startKind, out startShared);
                         else
                             nativeTargetsResolved &= TryResolveNativeEndpointWithLocalSurface(prefab,
                                 command.Start, placedInfo,
@@ -683,11 +685,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                                 out startUsedLocalSurface);
 
                         if (command.End.Kind == NetEndpointTargetKind.Infer)
-                            endSnap = ClassifyEndpointWithLocalSurface(prefab, d,
-                                sourceEndElevation, placedInfo, ref nodes, ref edges,
+                            endSnap = ClassifyEndpointWithLocalSurface(prefab,
+                                new float3(command.End.PosX, command.End.PosY, command.End.PosZ),
+                                sourceEndElevation, command.End.Flags, placedInfo, ref nodes, ref edges,
                                 ref ownedNodes, batchNewNodes, batchEdges,
                                 ref heightData, ref waterData,
-                                out endT, out endKind);
+                                out endT, out endKind, out endShared);
                         else
                             nativeTargetsResolved &= TryResolveNativeEndpointWithLocalSurface(prefab,
                                 command.End, placedInfo,
@@ -732,15 +735,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                         if (command.HasNativeCourse)
                             _nativeTargetDeadlines.Remove(NativeRetryKey(message, command));
                         startSnap = ClassifyEndpointWithLocalSurface(prefab, a,
-                            sourceStartElevation, placedInfo, ref nodes, ref edges,
+                            sourceStartElevation, command.Start.Flags, placedInfo, ref nodes, ref edges,
                             ref ownedNodes, batchNewNodes, batchEdges,
                             ref heightData, ref waterData,
-                            out startT, out startKind);
+                            out startT, out startKind, out startShared);
                         endSnap = ClassifyEndpointWithLocalSurface(prefab, d,
-                            sourceEndElevation, placedInfo, ref nodes, ref edges,
+                            sourceEndElevation, command.End.Flags, placedInfo, ref nodes, ref edges,
                             ref ownedNodes, batchNewNodes, batchEdges,
                             ref heightData, ref waterData,
-                            out endT, out endKind);
+                            out endT, out endKind, out endShared);
                     }
 
                     // Fixed-height ends retain the captured elevation/profile choice. Free-height
@@ -791,17 +794,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                         if (command.HasNativeCourse)
                             definition = CreateNativeCourse(prefab, command, bezier,
                                 startSnap, startT, startKind, startElevation,
-                                endSnap, endT, endKind, endElevation);
+                                endSnap, endT, endKind, endElevation, startShared, endShared);
                         else
                             definition = CreateCourse(prefab, bezier, command.Length,
                                 startSnap, startT, startKind, endSnap, endT, endKind,
-                                startElevation, endElevation, command.PinProfile);
+                                startElevation, endElevation, command.PinProfile, startShared, endShared);
                         createdDefinitions.Add(definition);
                         built++;
                         (retained ?? (retained = new List<SimulationCommandMessage>())).Add(message);
                         if (splittingCourse) splitUsed = true;
-                        if (startKind == KindFree) batchNewNodes.Add(a);
-                        if (endKind == KindFree) batchNewNodes.Add(d);
+                        RegisterBatchNodes(definition, placedInfo, startKind, endKind, batchNewNodes);
                         if (!nativePoint) batchEdges.Add(bezier);
                         realizedCourses.Add(new RealizedCourse
                         {
@@ -936,7 +938,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     ownedNodes.Dispose();
                     ownedEdges.Dispose();
                 }
-                batchNewNodes.Dispose();
                 batchEdges.Dispose();
             }
 

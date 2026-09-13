@@ -132,6 +132,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             NativeList<Entity> candidates, out bool ambiguous)
         {
             ambiguous = false;
+            // Most pages name a property already bound by an earlier sweep. Validate that
+            // binding before resolving prefabs or walking the spatial tree again.
+            Entity mapped;
+            if (_propertiesByIdentity.TryGetValue(wanted.Identity, out mapped) &&
+                PositionMatchesAnchor(mapped, wanted.Identity) &&
+                CanClaimProperty(mapped, wanted.Identity))
+                return mapped;
+
             Entity prefab;
             _prefabIndex.TryResolve(wanted.PrefabName,
                 candidate => EntityManager.HasComponent<BuildingPropertyData>(candidate),
@@ -139,12 +147,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             float3 anchor = new float3(wanted.AnchorX, wanted.AnchorY, wanted.AnchorZ);
             search.CollectNear(anchor, AnchorSearchRadius, candidates);
-
-            Entity mapped;
-            if (_propertiesByIdentity.TryGetValue(wanted.Identity, out mapped) &&
-                IsLiveProperty(mapped) && PositionMatchesAnchor(mapped, wanted.Identity) &&
-                CanClaimProperty(mapped, wanted.Identity))
-                return mapped;
 
             Entity best = Entity.Null;
             float bestDistance = 0f;

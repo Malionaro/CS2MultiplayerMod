@@ -24,20 +24,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     /// building each business occupies, the money-facing figures behind its panel, and the goods
     /// it is holding.
     ///
-    /// <para><b>Why the first attempt at the figures failed.</b> It corrected companies on a
-    /// 1024-frame rotation while <c>CompanyEconomyStatisticSystem</c> rewrites the same fields
-    /// every <b>128</b> frames, over a partition that system picks from its own frame index. Every
-    /// correction was overwritten roughly eight times before the next one arrived, usually on a
-    /// different set of companies, so the panels never settled. This system therefore borrows that
-    /// writer's schedule exactly - same interval, same partition, ordered directly after it - and
-    /// each company is corrected in the very frame its local value was recomputed.</para>
+    /// The host captures accounting on CompanyEconomyStatisticSystem's partition schedule.
+    /// Clients hold that calculator and use the transmitted figures, avoiding both duplicate
+    /// accounting and subsequent corrections of its results. Other local company systems still
+    /// handle resource orders and transport, so their shared fields retain the repair boundary.
     ///
-    /// <para><b>Tenancy is authority, not correction.</b> Figures can be corrected because the
-    /// local writer is a pure function of local state. Occupancy cannot: a client that keeps
-    /// choosing its own tenants would spawn and house businesses the host never had, and no
-    /// amount of correcting after the fact removes them. So the client stops deciding - see
-    /// Authority.cs - and the host's absolute per-building roster is realized through the game's
-    /// own rent-action queue, exactly as residential occupancy does for households.</para>
+    /// Clients also hold tenant creation and property search. The host's absolute per-building
+    /// roster is realized through the native rent-action queue, as residential occupancy does
+    /// for households. Authority.cs restores the held systems when simulation sync is disabled.
     ///
     /// <para><b>What this costs.</b> In the steady state a matching building costs one dictionary
     /// lookup and a field comparison, and nothing structural happens at all. Structural work -
@@ -353,12 +347,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             using (Diagnostics.SyncProfiler.Measure("CompanyStats"))
             {
                 MultiplayerService service = Mod.Service;
-                if (service == null || !service.GameplaySyncReady)
+                if (service == null || !service.SimulationSyncReady)
                 {
-                    // A world-sync barrier closes GameplaySyncReady before installing a
-                    // replacement world. Keep client authority held across that gap: briefly
-                    // re-enabling the spawners is enough for them to open businesses this peer's
-                    // own way before the first new page arrives.
+                    // A world-sync barrier closes the gate before installing a replacement
+                    // world. Keep client authority held across that gap: briefly re-enabling the
+                    // spawners is enough for them to open businesses this peer's own way before
+                    // the first new page arrives. ApplyLocalAuthority still releases the hold
+                    // when the session is running without simulation sync at all.
                     if (service != null && service.Session.Role == SessionRole.Client)
                         ApplyLocalAuthority(service.Session);
                     else
@@ -431,7 +426,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             MultiplayerService service = Mod.Service;
             if (service != null && service.Session.Role == SessionRole.Client)
                 ApplyLocalAuthority(service.Session);
-            else if (service == null || !service.GameplaySyncReady)
+            else if (service == null || !service.SimulationSyncReady)
                 RestoreLocalAuthority();
         }
 

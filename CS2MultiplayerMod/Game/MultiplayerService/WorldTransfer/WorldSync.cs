@@ -25,6 +25,9 @@ namespace CS2MultiplayerMod.Game
     {
         private World _currentWorld;
         private bool _worldSyncBarrierActive;
+        private bool _worldSyncInputLocked;
+        private bool _worldSyncBarrierOnly;
+        private int _worldSyncGateDelayFrames;
         private bool _worldSyncHadUsableWorld;
         private long _activeWorldSyncEpoch;
         private bool _clientQuiescencePending;
@@ -81,6 +84,7 @@ namespace CS2MultiplayerMod.Game
             _worldSyncHadUsableWorld = true;
             _activeWorldSyncEpoch = epoch;
             _worldSyncBarrierActive = true;
+            _worldSyncInputLocked = true;
             _hostWorldSyncUiStage = HostWorldSyncUiStage.WaitingForQuiescence;
             SyncInbox.DrainAll();
             // Held evidence describes the world that is about to be replaced. Keeping it would let
@@ -115,23 +119,43 @@ namespace CS2MultiplayerMod.Game
         {
             if (_session.Role != SessionRole.Client) return;
 
-            if (stage == WorldSyncStage.Begin)
+            if (stage == WorldSyncStage.Begin || stage == WorldSyncStage.BeginBarrierOnly)
             {
-                if (_worldSyncBarrierActive && epoch < _activeWorldSyncEpoch) return;
-                if (!_worldSyncBarrierActive || epoch != _activeWorldSyncEpoch)
+                bool barrierOnly = stage == WorldSyncStage.BeginBarrierOnly;
+                if (_worldSyncInputLocked && epoch < _activeWorldSyncEpoch) return;
+                if (!_worldSyncInputLocked || epoch != _activeWorldSyncEpoch)
                 {
                     _worldSyncHadUsableWorld = _phase == ClientWorldPhase.InSession;
                     _activeWorldSyncEpoch = epoch;
                     _worldSyncResumeSpeed = SanitizeSpeed(resumeSpeed);
-                    _worldSyncBarrierActive = true;
+                    _worldSyncInputLocked = true;
+                    _worldSyncBarrierOnly = barrierOnly;
                     _clientQuiescencePending = true;
                     _clientQuiescenceCleanFrames = 0;
                     _clientQuiescedEpoch = 0;
-                    SyncInbox.DrainAll();
-                    Diagnostics.ResyncArbiter.Reset();
-                    SetPhase(ClientWorldPhase.WaitingForMap);
-                    _log.Detail(LogTopic.WorldTransfer, "World sync epoch " + epoch +
-                        " began; local gameplay is paused while native transactions drain.");
+
+                    if (barrierOnly)
+                    {
+                        // This city is not being replaced, so the pre-cut inbox is not superseded
+                        // by anything - dropping it would lose exactly the commands the host
+                        // applied just before it suspended traffic, and only for this peer. Input
+                        // is locked immediately, but the gameplay gate stays open for two frames
+                        // so those already-queued commands land before the systems stop applying.
+                        _worldSyncGateDelayFrames = RequiredClientQuiescenceFrames;
+                        _log.Detail(LogTopic.WorldTransfer, "World sync epoch " + epoch +
+                            " began as barrier-only; this city keeps its world and is paused " +
+                            "until the host resumes.");
+                    }
+                    else
+                    {
+                        _worldSyncBarrierActive = true;
+                        _worldSyncGateDelayFrames = 0;
+                        SyncInbox.DrainAll();
+                        Diagnostics.ResyncArbiter.Reset();
+                        SetPhase(ClientWorldPhase.WaitingForMap);
+                        _log.Detail(LogTopic.WorldTransfer, "World sync epoch " + epoch +
+                            " began; local gameplay is paused while native transactions drain.");
+                    }
                 }
                 MaintainWorldSyncBarrier();
                 if (_clientQuiescedEpoch == epoch)
@@ -139,11 +163,23 @@ namespace CS2MultiplayerMod.Game
                 return;
             }
 
-            if (!_worldSyncBarrierActive || epoch != _activeWorldSyncEpoch) return;
+            if (!_worldSyncInputLocked || epoch != _activeWorldSyncEpoch) return;
 
             if (stage == WorldSyncStage.Resume)
             {
                 _worldSyncResumeSpeed = SanitizeSpeed(resumeSpeed);
+                // Barrier-only assumes this city already holds the world. If it does not - a join
+                // epoch that aborted after the host stopped counting it as joining - fall through
+                // to the recovery below and ask for one.
+                if (_worldSyncBarrierOnly && _phase == ClientWorldPhase.InSession)
+                {
+                    // Nothing was installed and nothing is stale: lift the pause and carry on with
+                    // the world this city already had.
+                    ResetWorldSyncState(restoreSpeed: true);
+                    _log.Event(LogTopic.WorldTransfer, "World sync epoch " + epoch +
+                        " resumed; this city held the barrier without a snapshot.");
+                    return;
+                }
                 if (_phase != ClientWorldPhase.WaitingForResume)
                 {
                     Diagnostics.SyncLog.Error(LogTopic.WorldTransfer,
@@ -182,7 +218,7 @@ namespace CS2MultiplayerMod.Game
         /// <summary>Keep pause/tool quiescence enforced even if a state apply or map load resets it.</summary>
         private void MaintainWorldSyncBarrier()
         {
-            if (!_worldSyncBarrierActive || _currentWorld == null) return;
+            if (!_worldSyncInputLocked || _currentWorld == null) return;
             try
             {
                 SimulationSystem simulation =
@@ -212,9 +248,17 @@ namespace CS2MultiplayerMod.Game
         /// </summary>
         private void PumpClientWorldSyncQuiescence()
         {
-            if (!_clientQuiescencePending || !_worldSyncBarrierActive ||
+            if (!_clientQuiescencePending || !_worldSyncInputLocked ||
                 _session.Role != SessionRole.Client || _activeWorldSyncEpoch <= 0)
                 return;
+
+            // A barrier-only peer keeps applying its queued pre-cut commands for these frames.
+            if (_worldSyncGateDelayFrames > 0)
+            {
+                _worldSyncGateDelayFrames--;
+                return;
+            }
+            _worldSyncBarrierActive = true;
 
             bool quiescent = false;
             try
@@ -262,6 +306,9 @@ namespace CS2MultiplayerMod.Game
         {
             float speed = _worldSyncResumeSpeed;
             _worldSyncBarrierActive = false;
+            _worldSyncInputLocked = false;
+            _worldSyncBarrierOnly = false;
+            _worldSyncGateDelayFrames = 0;
             _activeWorldSyncEpoch = 0;
             _deferredMapTransferId = 0;
             _deferredMapData = null;

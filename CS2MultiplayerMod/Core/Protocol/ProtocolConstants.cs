@@ -4,7 +4,25 @@ namespace CS2MultiplayerMod.Core.Protocol
     {
         /// <summary>
         /// Wire-format version. Bump when message layout changes to refuse handshake on mismatch.
-        /// Current v61 decides the water pin on a net course's endpoint ELEVATIONS. The gate read
+        /// v65 adds the barrier-only Begin stage: a join streams its world only to whoever joined,
+        /// and every other peer crosses the same barrier without being sent or installing one.
+        /// v65 also widens the accepted range of a course endpoint's split position. A
+        /// node-snapped endpoint carries the control point's extended curve parameter, which is
+        /// unbounded above 1; the old 0..1-shaped bound refused legal courses, and a multi-course
+        /// road that lost one piece to it was never completable.
+        /// v64 identifies automatic recovery explicitly in resync requests so chat distinguishes
+        /// mod-triggered recovery from a player requesting a world sync.
+        /// v63 sends selected zoning-cell patches rather than whole-block snapshots. Peers must
+        /// understand the edited-cell flag or untouched cells could be interpreted as erasures.
+        /// Milestone channel 4 also carries absolute host creditworthiness for loan-limit rewards.
+        /// v62 carries the host's simulation-sync choice in the handshake accept. The
+        /// switch turns off the half of the mod that replicates what the simulation decides on its
+        /// own - the buildings zoning grows, their occupants and tenants, and the demand behind
+        /// them - and it cannot be a per-machine preference: a client that held its local spawner
+        /// and demand writers while the host had stopped announcing decisions would own a city
+        /// that never grows again. The host answers for the whole session, and a client that
+        /// disagrees is simply told what the answer is.
+        /// v61 decides the water pin on a net course's endpoint ELEVATIONS. The gate read
         /// CoursePosFlags.FreeHeight, which the net tool sets only on parallel, grid and mid-curve
         /// positions - never on either end of a plain drag, whatever height it is drawn at. Every
         /// hand-drawn bridge was therefore exempted and rebuilt its deck from the receiver's own
@@ -196,7 +214,7 @@ namespace CS2MultiplayerMod.Core.Protocol
         /// islands) reattach on the receiver.
         /// See <see cref="Messages.HandshakeRequest"/> and version notes in doc/internals.
         /// </summary>
-        public const int ProtocolVersion = 61;
+        public const int ProtocolVersion = 65;
 
         /// <summary>
         /// Hard cap on a single payload, guarding against corrupt length prefixes.

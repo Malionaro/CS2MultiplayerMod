@@ -104,6 +104,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 bool deferTerrain = _terrainSync.HasBacklog();
                 _netSync.DeferForTerrain = deferTerrain;
                 _buildSync.DeferForTerrain = deferTerrain;
+                _buildSync.NetworkDependenciesHeld = deferTerrain || _netSync.HasPlacementBacklog;
                 _moveSync.DeferForTerrain = deferTerrain;
                 _deleteSync.DeferNetForTerrain = deferTerrain;
                 if (deferTerrain != _wasDeferringTerrain)
@@ -145,12 +146,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 if (!deferTerrain) Step("NetReplaceSync", _netReplaceSync.RealizePending);
                 Step("NetSync", _netSync.RealizePending);
                 bool deferNetworkDependents = deferTerrain || _netSync.HasPlacementBacklog;
+                _buildSync.NetworkDependenciesHeld = deferNetworkDependents;
                 // Published for the systems that only WAIT on roads, zoning and zone-grown
                 // buildings. They are not gated themselves, so without this they keep counting down
                 // retry windows for targets this pipeline is deliberately holding back.
                 CS2MultiplayerMod.Game.Sync.Infrastructure.RealizeGate.WorldBuildingHeld =
                     deferNetworkDependents;
                 if (!deferNetworkDependents) Step("ZoneSync", _zoneSync.RealizePending);
+                else _zoneSync.NotifyRealizeHeld(nowMs);
                 Step("TerrainSync", _terrainSync.RealizePending);
                 // After ZoneSync and behind the same network gate: a zoned building is grown on a lot
                 // that a road and its zoning produced, so realizing one before those arrive would put

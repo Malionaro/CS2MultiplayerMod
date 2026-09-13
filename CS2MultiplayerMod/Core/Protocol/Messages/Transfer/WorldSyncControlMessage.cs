@@ -9,6 +9,12 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
         Failed = 4,
         Resume = 5,
         Abort = 6,
+
+        /// <summary>
+        /// Begin for a peer that already holds this world: it quiesces and resumes with the
+        /// others, but no snapshot is streamed to it and it never replaces its world.
+        /// </summary>
+        BeginBarrierOnly = 7,
     }
 
     /// <summary>

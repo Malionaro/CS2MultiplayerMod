@@ -195,7 +195,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             using (Diagnostics.SyncProfiler.Measure("PropertyRent"))
             {
                 MultiplayerService service = Mod.Service;
-                if (service == null || !service.GameplaySyncReady)
+                if (service == null || !service.SimulationSyncReady)
                 {
                     if (_syncWasReady) DrainForWorldChange();
                     _syncWasReady = false;
@@ -234,7 +234,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void PumpIncoming()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
             if (service.Session.Role == SessionRole.Host)
             {
                 DropIncomingPages();

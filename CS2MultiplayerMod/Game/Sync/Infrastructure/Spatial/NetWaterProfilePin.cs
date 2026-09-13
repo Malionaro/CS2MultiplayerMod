@@ -14,7 +14,7 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
     /// generator's clamp band onto the two endpoint heights, which pins the deck to the straight
     /// line between them. That is the only shape a pin can carry, so a source deck which is not one
     /// straight line is left to the receiver's generator (see <see cref="Simplify"/>) - as is a span
-    /// whose own elevation already bands it (see <see cref="NeedsPin"/>).
+    /// whose own elevation already pins it (see <see cref="NeedsPin"/>).
     /// </para>
     /// </summary>
     internal static class NetWaterProfilePin
@@ -76,7 +76,7 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         /// </summary>
         public static void PredictDeck(float[] surface, float[] terrain, float[] distance, int count,
             float startHeight, float endHeight, float startElevation, float endElevation,
-            float elevationLimit, float maxSlope, float[] deck)
+            float elevationLimit, float maxSlope, float[] deck, bool requireElevated = false)
         {
             if (count <= 0) return;
             for (int i = 0; i < count; i++) deck[i] = surface[i];
@@ -91,6 +91,11 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
             ElevationBand(startHeight, endHeight, startElevation, endElevation, elevationLimit,
                 spannedTotal * slope * 0.5f,
                 out floorStart, out floorEnd, out ceilingStart, out ceilingEnd);
+            if (requireElevated)
+            {
+                floorStart = startHeight;
+                floorEnd = endHeight;
+            }
 
             // The band first, then the slope limit - the generator's order. Doing the slope passes
             // on the raw surface and the band afterwards leaves a raised span sitting on the water
@@ -208,38 +213,20 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         }
 
         /// <summary>
-        /// Whether this span's deck depends on the local water at all.
-        /// <para>
-        /// The generator bands every probe between the two endpoint heights as soon as ONE endpoint
-        /// elevation reaches the prefab's limit, or the net is elevated-only (see
-        /// <see cref="ElevationBand"/>). That band only makes a span water-independent while both of
-        /// those heights are on the wire - which is to say while both ends are FIXED height. The
-        /// band is read off <c>m_Position.y</c> AFTER free-height resolution, so a free-height end
-        /// anchors it at <c>max(terrain, water + 2*limit) + elevation</c> measured on the realizing
-        /// machine, and the whole span moves with that machine's water however raised it looks.
-        /// </para>
-        /// <para>
-        /// This matters for the ordinary case, not an exotic one: over water the tool forces an
-        /// endpoint elevation up to <c>PlaceableNetData.m_MinWaterElevation</c>, so a bridge drawn
-        /// at level 0 arrives here looking raised a full step. Exempting it on the elevation alone
-        /// skipped every bridge, which is what the 5 s counter's "banded by their own elevation"
-        /// bucket recorded.
-        /// </para>
-        /// <para>
-        /// The mirrored negative side bands from above and belongs to tunnels; those measure against
-        /// the terrain alone (elevation below -1), and terrain is replicated, so they are exempt
-        /// whether or not their ends resolve locally.
-        /// </para>
+        /// Whether this span may still depend on local water. A raised endpoint sets only
+        /// a floor; water and shoreline terrain can still push the deck above it. Only a
+        /// floor and ceiling together pin fixed endpoints to their transmitted heights.
         /// </summary>
         public static bool NeedsPin(float startElevation, float endElevation, float elevationLimit,
             bool requireElevated, bool startFreeHeight, bool endFreeHeight)
         {
-            if (!(elevationLimit > 0f)) return false;
-            if (startElevation <= -elevationLimit || endElevation <= -elevationLimit) return false;
+            if (!(elevationLimit > 0f) || float.IsInfinity(elevationLimit)) return false;
+            // Only two underground endpoints guarantee a terrain-only profile.
+            if (Math.Max(startElevation, endElevation) < -1f) return false;
             if (startFreeHeight || endFreeHeight) return true;
-            if (requireElevated) return false;
-            if (startElevation >= elevationLimit || endElevation >= elevationLimit) return false;
-            return true;
+            bool floor = requireElevated || Math.Max(startElevation, endElevation) >= elevationLimit;
+            bool ceiling = Math.Min(startElevation, endElevation) <= -elevationLimit;
+            return !(floor && ceiling);
         }
 
         /// <summary>
@@ -293,15 +280,14 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         }
 
         /// <summary>
-        /// Whether a pinned span can be committed for this prefab. Both endpoint heights must be the
-        /// ones the source built at, and the prefab's own elevation range has to reach both pins.
+        /// Whether a pinned span can be committed. Both endpoints must match the source.
+        /// The tool's selectable elevation range does not constrain NetCourse generation:
+        /// quays with narrow/nonnegative ranges still accept both synthetic profile bounds.
         /// </summary>
-        public static bool IsEligible(bool startPinnable, bool endPinnable, bool hasElevationRange,
-            float rangeMin, float rangeMax, float elevationLimit)
+        public static bool IsEligible(bool startPinnable, bool endPinnable, float elevationLimit)
         {
-            if (!startPinnable || !endPinnable) return false;
-            if (!(elevationLimit > 0f) || !hasElevationRange) return false;
-            return rangeMin <= -elevationLimit && rangeMax >= elevationLimit;
+            return startPinnable && endPinnable &&
+                elevationLimit > 0f && !float.IsInfinity(elevationLimit);
         }
 
         /// <summary>

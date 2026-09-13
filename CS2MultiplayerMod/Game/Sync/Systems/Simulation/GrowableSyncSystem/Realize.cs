@@ -70,7 +70,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             MultiplayerService service = Mod.Service;
             if (service == null) return;
-            if (!service.GameplaySyncReady) { ExtendPendingStateWindows(service.NowMs); return; }
+            if (!service.SimulationSyncReady) { ExtendPendingStateWindows(service.NowMs); return; }
 
             MultiplayerSession session = service.Session;
             long now = service.NowMs;
@@ -216,6 +216,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 blockers.Dispose();
             }
 
+            _buildSync.TrackRemoteBuilding(Entity.Null, prefab, position, rotation,
+                roadConnectionExpected: true, source: "growable");
             _buildSync.RealizeSimulationBuilding(prefab, position, rotation, SeedFor(command),
                 (command.Flags & GrowableLifecycleCommand.FlagUnderConstruction) != 0);
             NoteSelfRealized(prefab, position, command, now);

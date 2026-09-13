@@ -178,7 +178,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CaptureRenterChanges()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 _renterUpdates.IsEmptyIgnoreFilter) return;
 
             NativeArray<RentersUpdated> updates = default(NativeArray<RentersUpdated>);

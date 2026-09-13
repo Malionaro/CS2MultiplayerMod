@@ -61,7 +61,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             if (writer == null) return false;
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != Core.Session.SessionRole.Host) return false;
 
             if (_hostSweepEntities == null && !BeginHostSweep()) return WriteEmptySweep(writer);

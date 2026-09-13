@@ -1,3 +1,4 @@
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -491,7 +492,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void CollectLocalHouseholds(Entity property)
         {
             _localHouseholds.Clear();
-            DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(property);
+            var renters = new BufferEdit<Renter>(EntityManager, property);
             bool changed = false;
             for (int i = renters.Length - 1; i >= 0; i--)
             {

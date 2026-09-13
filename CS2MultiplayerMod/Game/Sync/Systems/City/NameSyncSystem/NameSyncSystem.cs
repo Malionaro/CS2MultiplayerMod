@@ -9,6 +9,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Colossal.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
+using CS2MultiplayerMod.Core.Sync;
 using CS2MultiplayerMod.Core.Protocol.Messages;
 using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Diagnostics;
@@ -64,8 +65,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
             new ConcurrentQueue<SimulationCommandMessage>();
-        private readonly List<(EntityNameCommand cmd, int origin, long deadline)> _targetRetry =
-            new List<(EntityNameCommand, int, long)>();
+        private readonly LatestTargetRetryQueue<string, (EntityNameCommand cmd, int origin)> _targetRetry =
+            new LatestTargetRetryQueue<string, (EntityNameCommand, int)>(MaxPendingTargets, TargetRetryWindowMs);
 
         /// <summary>Last observed typed name per entity - the baseline the 1 Hz diff works against.</summary>
         private readonly Dictionary<Entity, string> _knownNames = new Dictionary<Entity, string>();

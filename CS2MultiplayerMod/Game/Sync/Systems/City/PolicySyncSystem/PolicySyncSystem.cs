@@ -11,6 +11,7 @@ using Game.Tools;
 using Unity.Entities;
 using Unity.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
+using CS2MultiplayerMod.Core.Sync;
 using CS2MultiplayerMod.Core.Protocol.Messages;
 using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Diagnostics;
@@ -33,8 +34,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
             new ConcurrentQueue<SimulationCommandMessage>();
         private readonly ReplicationGuard _guard = new ReplicationGuard();
-        private readonly List<(EntityPolicyCommand cmd, int origin, long deadline)> _targetRetry =
-            new List<(EntityPolicyCommand, int, long)>();
+        private readonly LatestTargetRetryQueue<string, (EntityPolicyCommand cmd, int origin)> _targetRetry =
+            new LatestTargetRetryQueue<string, (EntityPolicyCommand, int)>(MaxPendingTargets, TargetRetryWindowMs);
 
         private PrefabSystem _prefabSystem;
         private PrefabIndex _prefabIndex;
@@ -106,13 +107,23 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             });
 
             _observer = SyncObserverBinding.Bind(
-                () => new CommandObserver(_incoming, EntityPolicyCommand.Id));
+                () => new CommandObserver(_incoming, EntityPolicyCommand.Id), DrainQueue);
         }
 
         protected override void OnDestroy()
         {
-            SyncObserverBinding.Unbind(_observer);
+            SyncObserverBinding.Unbind(_observer, DrainQueue);
             base.OnDestroy();
+        }
+
+        private void DrainQueue()
+        {
+            _known.Clear();
+            _next.Clear();
+            _primed = false;
+            _targetRetry.Clear();
+            _guard.Clear();
+            SyncInbox.Clear(_incoming);
         }
 
         protected override void OnUpdate()
@@ -125,9 +136,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 MultiplayerSession session = service.Session;
                 if (!service.GameplaySyncReady)
                 {
-                    if (_known.Count > 0) { _known.Clear(); _primed = false; }
-                    _targetRetry.Clear();
-                    SyncInbox.Clear(_incoming);
+                    DrainQueue();
                     return;
                 }
 

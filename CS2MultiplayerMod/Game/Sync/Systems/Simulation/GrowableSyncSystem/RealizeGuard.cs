@@ -77,27 +77,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     Entity prefab = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
                     if (!IsAutonomousGrowable(entity, now)) continue;
 
-                    float3 position = EntityManager
-                        .GetComponentData<global::Game.Objects.Transform>(entity).m_Position;
+                    global::Game.Objects.Transform transform = EntityManager
+                        .GetComponentData<global::Game.Objects.Transform>(entity);
+                    float3 position = transform.m_Position;
                     GrowableLifecycleCommand command;
                     if (TryTakeSelfRealized(prefab, position, now, out command))
                     {
                         // The definition is now a real native building. This is the first point at
                         // which its construction clock and state payload can be applied safely.
                         ApplyConditionAndState(entity, command);
-                        EntityManager.AddComponent<Updated>(entity);
-                        // A full queue costs a check, not a command - the building is already
-                        // realized and its state written - and the oldest entry has had the most
-                        // of its window.
-                        if (_realizationValidations.Count >= MaxRealizationValidations)
-                            _realizationValidations.RemoveAt(0);
-                        _realizationValidations.Add(new RealizationValidation
-                        {
-                            Building = entity,
-                            Prefab = prefab,
-                            Position = position,
-                            Expiry = now + RealizationValidationWindowMs,
-                        });
+                        if (_buildSync != null)
+                            _buildSync.TrackRemoteBuilding(entity, prefab, position,
+                                transform.m_Rotation,
+                                roadConnectionExpected: true, source: "growable");
                         continue;
                     }
 
@@ -112,119 +104,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 entities.Dispose();
             }
-        }
-
-        /// <summary>
-        /// A definition being accepted is not yet proof that the generated building joined the
-        /// road/service graph. Re-run native Updated initialization until the root has a road,
-        /// reciprocal road buffer, and the standard utility consumers. Persistent failure is
-        /// structural divergence and escalates to the existing world-repair path.
-        /// </summary>
-        /// <summary>When this pass last ran with the road pipeline able to deliver.</summary>
-        private long _lastValidationTickMs;
-
-        /// <summary>
-        /// A building is being validated for having joined its ROAD graph, and roads arrive through
-        /// the net pipeline. While that pipeline is held - terrain catching up, or a placement
-        /// waiting for a target - the road this building needs cannot arrive by definition, so the
-        /// window must not count down. It is the same fifteen seconds as the hold itself, so left
-        /// running it would ask for a world reload over a road the mod was still holding back.
-        /// </summary>
-        private void ExtendValidationWindowsWhileRoadsHeld(long now)
-        {
-            long heldMs = _lastValidationTickMs == 0 ? 0 : now - _lastValidationTickMs;
-            _lastValidationTickMs = now;
-            if (!NetworkDependenciesHeld || heldMs <= 0) return;
-            for (int i = 0; i < _realizationValidations.Count; i++)
-                _realizationValidations[i].Expiry += heldMs;
-        }
-
-        private void ValidateRealizedBuildings(long now)
-        {
-            ExtendValidationWindowsWhileRoadsHeld(now);
-            // The dependency cannot arrive while held. Reinitializing the same road every
-            // render frame only repeats native graph work without making progress.
-            if (NetworkDependenciesHeld) return;
-            int remaining = _realizationValidations.Count;
-            int checks = 0;
-            while (remaining-- > 0 && _realizationValidations.Count > 0 &&
-                   checks < MaxValidationChecksPerFrame)
-            {
-                if (_validationCursor >= _realizationValidations.Count) _validationCursor = 0;
-                int i = _validationCursor;
-                RealizationValidation pending = _realizationValidations[i];
-                if (now < pending.NextAttempt) { _validationCursor++; continue; }
-                pending.NextAttempt = now + RetryIntervalMs;
-                checks++;
-                _validationChecks++;
-                Entity building = pending.Building;
-                if (building == Entity.Null || !EntityManager.Exists(building) ||
-                    EntityManager.HasComponent<Deleted>(building))
-                {
-                    _realizationValidations.RemoveAt(i);
-                    continue;
-                }
-
-                bool connected = HasNativeRoadConnection(building, pending.Prefab);
-                bool utilities = HasExpectedUtilityConsumers(building, pending.Prefab);
-                if (connected && utilities)
-                {
-                    _realizationValidations.RemoveAt(i);
-                    continue;
-                }
-
-                if (pending.Expiry <= now)
-                {
-                    _realizationValidations.RemoveAt(i);
-                    SyncLog.Warn(LogTopic.Buildings, "GrowableSync: generated building '" +
-                        PrefabIndexSafeName(pending.Prefab) + "' at " + Format(pending.Position) +
-                        " did not join its road/service graph; " + "requesting world repair.");
-                    SyncInbox.RequestResync(CS2MultiplayerMod.Game.Diagnostics.ResyncReport
-                        .Create("growable building failed road/service realization", "growable",
-                            CS2MultiplayerMod.Game.Diagnostics.ResyncEvidence.MissingTarget)
-                        .About("road/service graph of '" + PrefabIndexSafeName(pending.Prefab) +
-                               "' at " + Format(pending.Position))
-                        .Tried("re-ran native initialization for 15 s of attempts, not counting time roads were held back")
-                        .Fact("joined its road", connected)
-                        .Fact("has its utility consumers", utilities));
-                    continue;
-                }
-
-                _validationCursor++;
-                if (!EntityManager.HasComponent<Updated>(building))
-                    EntityManager.AddComponent<Updated>(building);
-                Building data = EntityManager.GetComponentData<Building>(building);
-                if (data.m_RoadEdge != Entity.Null && EntityManager.Exists(data.m_RoadEdge) &&
-                    !EntityManager.HasComponent<Updated>(data.m_RoadEdge))
-                    EntityManager.AddComponent<Updated>(data.m_RoadEdge);
-            }
-        }
-
-        private bool HasNativeRoadConnection(Entity building, Entity prefab)
-        {
-            if (!EntityManager.HasComponent<BuildingData>(prefab)) return true;
-            BuildingData data = EntityManager.GetComponentData<BuildingData>(prefab);
-            if ((data.m_Flags & global::Game.Prefabs.BuildingFlags.RequireRoad) == 0) return true;
-
-            Building live = EntityManager.GetComponentData<Building>(building);
-            Entity road = live.m_RoadEdge;
-            if (road == Entity.Null || !EntityManager.Exists(road) ||
-                !EntityManager.HasBuffer<ConnectedBuilding>(road)) return false;
-            DynamicBuffer<ConnectedBuilding> connected =
-                EntityManager.GetBuffer<ConnectedBuilding>(road, true);
-            for (int i = 0; i < connected.Length; i++)
-                if (connected[i].m_Building == building) return true;
-            return false;
-        }
-
-        private bool HasExpectedUtilityConsumers(Entity building, Entity prefab)
-        {
-            if (EntityManager.HasComponent<UnderConstruction>(building) ||
-                EntityManager.HasComponent<Abandoned>(building) ||
-                EntityManager.HasComponent<Destroyed>(building) ||
-                !EntityManager.HasComponent<ConsumptionData>(prefab)) return true;
-            return EntityManager.HasComponent<ElectricityConsumer>(building) &&
-                   EntityManager.HasComponent<WaterConsumer>(building);
         }
 
     }

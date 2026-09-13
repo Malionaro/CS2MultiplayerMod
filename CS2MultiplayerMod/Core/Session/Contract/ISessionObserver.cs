@@ -43,7 +43,7 @@ namespace CS2MultiplayerMod.Core.Session
             ConnectionId connection);
 
         /// <summary>
-        /// A player ran /sync (host only). Stream the current world to
+        /// A manual or automatic world sync was requested (host only). Stream the current world to
         /// <paramref name="connection"/>, or to everyone when it is
         /// <see cref="ConnectionId.None"/> (the host itself asked).
         /// </summary>

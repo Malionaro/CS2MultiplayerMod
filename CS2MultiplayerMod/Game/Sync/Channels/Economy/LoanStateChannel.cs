@@ -1,15 +1,14 @@
 using Unity.Entities;
 using CS2MultiplayerMod.Core.Protocol;
-
+using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Sync.Infrastructure;
+
 namespace CS2MultiplayerMod.Game.Sync.Channels
 {
     /// <summary>
-    /// Replicates the city loan (<see cref="global::Game.Simulation.Loan"/> on the City
-    /// entity) as a player-editable channel: any player can take or repay a loan and the
-    /// host arbitrates. Applying goes through the game's own
-    /// <see cref="global::Game.Tools.LoanSystem.ChangeLoan"/> so the money delta, interest
-    /// and creditworthiness bookkeeping all happen exactly as for a local loan change.
+    /// Replicates the city loan as a player-editable channel. The host arbitrates client
+    /// requests through the game's ChangeLoan API. Clients apply the confirmed balance
+    /// directly: the separate money channel already includes the transaction.
     /// </summary>
     public sealed class LoanStateChannel : IStateChannel
     {
@@ -22,7 +21,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         private void Ensure(EntityManager em)
         {
             if (_ready) return;
-            _query = em.CreateEntityQuery(ComponentType.ReadOnly<global::Game.Simulation.Loan>());
+            _query = em.CreateEntityQuery(ComponentType.ReadWrite<global::Game.Simulation.Loan>());
             _ready = true;
         }
 
@@ -31,8 +30,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
             Ensure(em);
             if (_query.CalculateEntityCount() == 0) return false;
 
-            // m_LastModified (a frame index) diverges between machines and would make
-            // every snapshot look like an edit — only the amount is the shared state.
+            // Frame indices differ between machines; only the amount is shared state.
             writer.WriteInt(em.GetComponentData<global::Game.Simulation.Loan>(_query.GetSingletonEntity()).m_Amount);
             return true;
         }
@@ -43,8 +41,22 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
             int amount = reader.ReadInt();
             if (_query.CalculateEntityCount() == 0) return;
 
-            int current = em.GetComponentData<global::Game.Simulation.Loan>(_query.GetSingletonEntity()).m_Amount;
-            if (current == amount) return;
+            Entity entity = _query.GetSingletonEntity();
+            var loan = em.GetComponentData<global::Game.Simulation.Loan>(entity);
+            if (loan.m_Amount == amount) return;
+
+            if (Mod.Service != null && Mod.Service.Session.Role == SessionRole.Client)
+            {
+                // ChangeLoan clamps repayment against local cash and queues it for a later
+                // frame. After the money snapshot this can refuse an already-paid repayment,
+                // charge it twice, or let edit detection send the old loan back to the host.
+                // Land the authoritative amount now without another treasury transaction.
+                loan.m_Amount = amount;
+                loan.m_LastModified = em.World
+                    .GetOrCreateSystemManaged<global::Game.Simulation.SimulationSystem>().frameIndex;
+                em.SetComponentData(entity, loan);
+                return;
+            }
 
             em.World.GetOrCreateSystemManaged<global::Game.Tools.LoanSystem>().ChangeLoan(amount);
         }

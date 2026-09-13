@@ -20,6 +20,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     {
         private void ApplyIncoming(MultiplayerSession session, long now)
         {
+            _targetRetry.Observe(now, Infrastructure.RealizeGate.WorldBuildingHeld);
             // Names almost always arrive before the road or building they belong to has been rebuilt
             // here, so the retry pass is the normal path, not the exception. Re-attempting it a few
             // times a second rather than every frame keeps a pending name from completing the net
@@ -47,33 +48,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 }
 
                 if (!TryApplyName(command, message.OriginPlayerId, now))
-                    QueueRetry(command, message.OriginPlayerId, now);
+                    QueueRetry(command, message.OriginPlayerId);
+                else _targetRetry.Remove(PendingKey(command));
             }
         }
 
         private void RetryPending(long now)
         {
-            for (int i = 0; i < _targetRetry.Count;)
-            {
-                var pending = _targetRetry[i];
-                if (TryApplyName(pending.cmd, pending.origin, now))
-                {
-                    _targetRetry.RemoveAt(i);
-                    continue;
-                }
-                if (now >= pending.deadline)
-                {
-                    // A name is cosmetic: the world stays consistent without it, so this never
-                    // escalates to a resync the way a missing build target does.
-                    SyncLog.Warn(LogTopic.City, "NameSync: no local " +
-                        KindName(pending.cmd.TargetKind) + " '" + pending.cmd.TargetPrefabName +
-                        "' appeared within " + (TargetRetryWindowMs / 1000) +
-                        " s; dropping its name.");
-                    _targetRetry.RemoveAt(i);
-                    continue;
-                }
-                i++;
-            }
+            _targetRetry.Pump(pending => TryApplyName(pending.cmd, pending.origin, now),
+                pending => SyncLog.Warn(LogTopic.City, "NameSync: no local " +
+                    KindName(pending.cmd.TargetKind) + " '" + pending.cmd.TargetPrefabName +
+                    "' appeared within " + (TargetRetryWindowMs / 1000) +
+                    " s of eligible retry time; dropping its name."));
         }
 
         /// <summary>
@@ -125,23 +111,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             return true;
         }
 
-        private void QueueRetry(EntityNameCommand command, int origin, long now)
+        private void QueueRetry(EntityNameCommand command, int origin)
         {
-            string key = PendingKey(command);
-            for (int i = 0; i < _targetRetry.Count; i++)
-            {
-                if (PendingKey(_targetRetry[i].cmd) != key) continue;
-                // Only the newest name for a target matters while that target is absent.
-                _targetRetry[i] = (command, origin, now + TargetRetryWindowMs);
-                return;
-            }
-            if (_targetRetry.Count >= MaxPendingTargets)
-            {
-                _targetRetry.RemoveAt(0);
+            if (!_targetRetry.SetLatest(PendingKey(command), (command, origin)))
                 SyncLog.Warn(LogTopic.City,
                     "NameSync: pending-name queue is full; dropped its oldest entry.");
-            }
-            _targetRetry.Add((command, origin, now + TargetRetryWindowMs));
         }
 
         /// <summary>

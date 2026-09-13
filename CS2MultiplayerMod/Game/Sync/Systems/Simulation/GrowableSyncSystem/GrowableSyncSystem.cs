@@ -46,16 +46,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// </summary>
         private const int MaxStateBuildingsPerScan = 256;
 
-        /// <summary>Maximum time for a generated building to acquire its native road link.</summary>
-        private const long RealizationValidationWindowMs = 15000;
-
         private const int MaxPendingStateCorrections = 512;
-        private const int MaxRealizationValidations = 512;
         private const long RetryIntervalMs = 500;
         private const int MaxStateRetriesPerFrame = 16;
-        private const int MaxValidationChecksPerFrame = 32;
         private int _stateRetryCursor;
-        private int _validationCursor;
 
         /// <summary>
         /// How long a completed sequence number is remembered. Long enough to cover a reconnect
@@ -112,22 +106,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             public long NextAttempt;
         }
 
-        private sealed class RealizationValidation
-        {
-            public Entity Building;
-            public Entity Prefab;
-            public float3 Position;
-            public long Expiry;
-            public long NextAttempt;
-        }
-
         private readonly List<PendingRealizedSpawn> _selfRealized =
             new List<PendingRealizedSpawn>();
         private readonly List<PendingStateCorrection> _pendingStateCorrections =
             new List<PendingStateCorrection>();
         private readonly HashSet<uint> _pendingStateSequences = new HashSet<uint>();
-        private readonly List<RealizationValidation> _realizationValidations =
-            new List<RealizationValidation>();
 
         /// <summary>
         /// Spawnable-prefab entities proven to have come from a player's object tool. The prefab
@@ -175,7 +158,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private int _gotSpawn, _gotLevel, _gotRemove, _gotState;
         private int _duplicates, _conflicts, _unmatched, _unknownPrefab, _rejectedLocal;
         private int _repairedPrefabs;
-        private int _stateDataOnly, _stateRefreshes, _stateRetryChecks, _validationChecks;
+        private int _stateDataOnly, _stateRefreshes, _stateRetryChecks;
 
         private PrefabSystem _prefabSystem;
         private PrefabIndex _prefabIndex;
@@ -255,15 +238,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _selfRealized.Clear();
             _pendingStateCorrections.Clear();
             _pendingStateSequences.Clear();
-            _realizationValidations.Clear();
             _playerPlacedGrowables.Clear();
             _stalePlayerPlacedGrowables.Clear();
             _lastPlayerPlacedPruneMs = 0;
             _lastGrowableRealizeMs = 0;
-            _lastValidationTickMs = 0;
             _stateRetryCursor = 0;
-            _validationCursor = 0;
-            _stateDataOnly = _stateRefreshes = _stateRetryChecks = _validationChecks = 0;
+            _stateDataOnly = _stateRefreshes = _stateRetryChecks = 0;
             NetworkDependenciesHeld = false;
             // A replaced world arrives complete. Anything still queued for the old one refers to
             // buildings that no longer exist, and every sequence number belongs to a city that is
@@ -289,7 +269,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 MultiplayerService service = Mod.Service;
                 if (service == null) return;
 
-                if (!service.GameplaySyncReady)
+                if (!service.SimulationSyncReady)
                 {
                     DrainQueue();
                     RestoreLocalAuthority();
@@ -307,7 +287,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     // written by the object pipeline during the Modification phases and is gone again
                     // by the next frame's ToolUpdate.
                     RejectLocallyGrownBuildings(now);
-                    ValidateRealizedBuildings(now);
                     return;
                 }
 
@@ -418,19 +397,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             long coalesced = _incoming.TakeCoalescedCount();
             if (_gotSpawn + _gotLevel + _gotRemove + _gotState + _duplicates + _conflicts +
                 _unmatched + _unknownPrefab + _rejectedLocal + _repairedPrefabs +
-                _stateRetryChecks + _validationChecks == 0 && coalesced == 0) return;
+                _stateRetryChecks == 0 && coalesced == 0) return;
             SyncLog.Detail(LogTopic.Buildings, "GrowableSync/30s client: spawn=" + _gotSpawn +
                 " level=" + _gotLevel + " remove=" + _gotRemove + " state=" + _gotState +
                 " duplicate=" + _duplicates + " conflict=" + _conflicts + " unmatched=" + _unmatched +
                 " unknownPrefab=" + _unknownPrefab + " rejectedLocal=" + _rejectedLocal +
                 " prefabRepairs=" + _repairedPrefabs + " inbox=" + _incoming.Count +
                 " coalesced=" + coalesced + " dataOnly=" + _stateDataOnly +
-                " stateRefreshes=" + _stateRefreshes + " retryChecks=" + _stateRetryChecks +
-                " validationChecks=" + _validationChecks + ".");
+                " stateRefreshes=" + _stateRefreshes + " retryChecks=" + _stateRetryChecks + ".");
             _gotSpawn = _gotLevel = _gotRemove = _gotState = 0;
             _duplicates = _conflicts = _unmatched = _unknownPrefab = _rejectedLocal = 0;
             _repairedPrefabs = 0;
-            _stateDataOnly = _stateRefreshes = _stateRetryChecks = _validationChecks = 0;
+            _stateDataOnly = _stateRefreshes = _stateRetryChecks = 0;
         }
     }
 }

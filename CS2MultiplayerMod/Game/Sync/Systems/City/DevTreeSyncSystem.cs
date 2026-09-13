@@ -31,10 +31,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private readonly Dictionary<string, Entity> _nodeByName = new Dictionary<string, Entity>();
 
         private PrefabSystem _prefabSystem;
-        private EndFrameBarrier _endFrameBarrier;
+        private DeferredPrefabUnlocker _unlocks;
         private EntityQuery _nodes;
         private EntityQuery _pointsQuery;
-        private EntityArchetype _unlockArchetype;
         private CommandObserver _observer;
         private bool _initialized;
 
@@ -43,9 +42,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             base.OnCreate();
 
             _prefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
-            // Unlock events must be raised through the same barrier the game uses so
-            // UnlockSystem (MainLoop) consumes them before CleanUpSystem reaps them.
-            _endFrameBarrier = World.GetOrCreateSystemManaged<EndFrameBarrier>();
+            _unlocks = new DeferredPrefabUnlocker(EntityManager);
             // DevTree nodes are prefab entities — IncludePrefab so the query finds them.
             _nodes = GetEntityQuery(new EntityQueryDesc
             {
@@ -54,10 +51,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 Options = EntityQueryOptions.IncludePrefab,
             });
             _pointsQuery = GetEntityQuery(ComponentType.ReadWrite<DevTreePoints>());
-            // The exact archetype the game raises to unlock a node (see DevTreeSystem).
-            _unlockArchetype = EntityManager.CreateArchetype(
-                ComponentType.ReadWrite<Unlock>(), ComponentType.ReadWrite<global::Game.Common.Event>());
-
             _observer = SyncObserverBinding.Bind(
                 () => new CommandObserver(_incoming, DevTreePurchaseCommand.Id));
         }
@@ -79,11 +72,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 if (!service.GameplaySyncReady)
                 {
                     _initialized = false;
+                    _unlocks.Reset();
                     return;
                 }
 
                 long now = service.NowMs;
                 _guard.Prune(now);
+                _unlocks.PruneCompleted();
 
                 // Apply remote purchases first so their unlocks are accounted for before we
                 // diff for local ones.
@@ -176,16 +171,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 }
                 if (!IsLocked(node)) continue; // already unlocked here — nothing to do
 
-                _guard.Mark(NodeKey(command.NodePrefabName), now);
-
                 // Unlock the node everywhere so the partner's tree updates. Defer the event
                 // to the EndFrameBarrier — creating it directly from UIUpdate would have it
                 // reaped by CleanUpSystem this same frame, before UnlockSystem (MainLoop)
                 // could process it. The barrier replays it at the next MainLoop where the
                 // game's own unlock pipeline (node + dependent-content cascade) runs.
-                EntityCommandBuffer ecb = _endFrameBarrier.CreateCommandBuffer();
-                Entity e = ecb.CreateEntity(_unlockArchetype);
-                ecb.SetComponent(e, new Unlock(node));
+                if (!_unlocks.TryQueue(node)) continue;
+                _guard.Mark(NodeKey(command.NodePrefabName), now);
 
                 // Only the host owns the points: charge the node's cost so the authoritative
                 // snapshot reflects the spend instead of refilling the buyer.

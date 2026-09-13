@@ -54,9 +54,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     // them for the same reason, and a world resync is what reconciles the two.
                     // Sending these produced a delete the peer could never match (its lot holds a
                     // different building, or none), and when one did match it tore down a building
-                    // the peer's own simulation considered healthy.
-                    if (!ownedUpgrades && IsSimulationOwnedLifecycle(prefab) &&
-                        !_toolDeleteOriginals.Contains(entity))
+                    // the peer's own simulation considered healthy. A player's bulldoze normally
+                    // still travels, because the growable it removed stands on every peer - unless
+                    // this session grows its buildings separately, where it is as unmatchable as
+                    // the simulation's own removal.
+                    bool playerRemoved = _toolDeleteOriginals.Contains(entity) &&
+                                         Mod.Service != null && Mod.Service.SimulationSyncEnabled;
+                    if (!ownedUpgrades && IsSimulationOwnedLifecycle(prefab) && !playerRemoved)
                     {
                         SyncLog.Trace(LogTopic.Buildings,
                             "DeleteSync: not replicating simulation-owned removal of '" + name +

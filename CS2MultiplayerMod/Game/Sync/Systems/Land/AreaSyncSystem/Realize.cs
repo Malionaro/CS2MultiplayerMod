@@ -15,6 +15,29 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 {
     public partial class AreaSyncSystem
     {
+        private void RepairIncompleteDistricts(long now)
+        {
+            if (now - _lastDistrictRepairMs < EditScanIntervalMs) return;
+            _lastDistrictRepairMs = now;
+
+            // Run before area geometry/search updates so repaired borders become selectable.
+            // This also covers districts restored from a host save when a player joins again.
+            NativeArray<Entity> entities = _districtAreas.ToEntityArray(Allocator.Temp);
+            try
+            {
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    if (!AreaPolygon.RepairDistrict(EntityManager, entities[i])) continue;
+                    MarkAreaAndSubAreasUpdated(entities[i]);
+                    SyncLog.Detail(LogTopic.Land, "AreaSync: restored district editability.");
+                }
+            }
+            finally
+            {
+                entities.Dispose();
+            }
+        }
+
         private void RetryOwnedAreaSnapshots(long now)
         {
             for (int i = 0; i < _ownedAreaRetry.Count;)
@@ -366,6 +389,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     newRing[n] = position;
                     nodes.Add(new Node { m_Position = position, m_Elevation = command.NodeElevation[n] });
                 }
+                AreaPolygon.Complete(EntityManager, best);
                 MarkAreaAndSubAreasUpdated(best);
 
                 // Suppress the echo both ways: spatial guard + the scan cache itself.
@@ -412,6 +436,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         m_Position = new float3(command.NodeX[n], command.NodeY[n], command.NodeZ[n]),
                         m_Elevation = command.NodeElevation[n],
                     });
+                AreaPolygon.CloseDefinitionRing(nodes);
                 EntityManager.AddComponent<Updated>(definition);
                 EntityManager.AddComponent<Deleted>(definition);
                 SyncLog.Detail(LogTopic.Land, "AreaSync realize: drew '" + command.PrefabName +

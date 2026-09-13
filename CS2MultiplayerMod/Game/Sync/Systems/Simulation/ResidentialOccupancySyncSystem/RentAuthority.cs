@@ -129,7 +129,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void CorrectHouseholdRentsAfterRentAdjust(int bucket)
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != SessionRole.Client ||
                 bucket < 0 || bucket >= UpdatePartitions) return;
 

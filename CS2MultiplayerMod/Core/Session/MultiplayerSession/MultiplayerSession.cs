@@ -82,6 +82,19 @@ namespace CS2MultiplayerMod.Core.Session
         /// <summary>True when hosting beyond the local network (LAN filter off).</summary>
         public bool PublicExposure => Role == SessionRole.Host && _config != null && !_config.LanOnly;
 
+        /// <summary>
+        /// Whether this session replicates the simulation's own decisions. The host answers from
+        /// its own config; a client answers with what the host announced when it was accepted,
+        /// never with its local setting - the two machines have to hold the same half of the
+        /// simulation or one of them waits forever for the other's messages.
+        /// </summary>
+        public bool SimulationSyncEnabled => Role == SessionRole.Client
+            ? _hostSimulationSync
+            : _config == null || _config.SimulationSync;
+
+        /// <summary>Client-only: the host's answer, defaulted until the accept arrives.</summary>
+        private bool _hostSimulationSync = true;
+
         /// <summary>How the active session reaches its peers (Direct before the first session).</summary>
         public TransportMode Transport => _config != null ? _config.Transport : TransportMode.Direct;
 

@@ -28,6 +28,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal bool Capture(NetworkWriter writer)
         {
             if (writer == null) return false;
+            // Rents belong to properties each city grew for itself once simulation sync is off,
+            // so the pages would name buildings the receiver has never had.
+            MultiplayerService service = Mod.Service;
+            if (service != null && !service.SimulationSyncEnabled) return false;
             if (_hostSweepEntities == null)
             {
                 NativeArray<Entity> properties = _properties.ToEntityArray(Allocator.Temp);

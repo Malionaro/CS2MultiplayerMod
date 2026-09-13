@@ -74,7 +74,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void FinalizeMoveIns()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady ||
+            if (service == null || !service.SimulationSyncReady ||
                 service.Session.Role != SessionRole.Client || _pendingMoveIns.Count == 0) return;
 
             int remaining = math.min(MaxMoveInFinalizationsPerUpdate, _pendingMoveInOrder.Count);

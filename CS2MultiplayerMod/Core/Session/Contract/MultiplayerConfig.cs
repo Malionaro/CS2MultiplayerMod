@@ -59,6 +59,14 @@ namespace CS2MultiplayerMod.Core.Session
         /// </summary>
         public readonly bool IgnoreModCompatibilityChecks;
 
+        /// <summary>
+        /// Host only. Whether the session replicates the simulation's own decisions - the
+        /// buildings zoning grows, who occupies them, and the demand behind them. Announced to
+        /// every client on acceptance, because a peer that disagrees would hold its local
+        /// simulation for messages the host is never going to send.
+        /// </summary>
+        public readonly bool SimulationSync;
+
         /// <summary>Game build identifier, compared strictly during the handshake.</summary>
         public readonly string GameVersion;
 
@@ -74,7 +82,8 @@ namespace CS2MultiplayerMod.Core.Session
                                  string modVersion = "", string gameVersion = "", string[] dlcList = null,
                                  bool requireJoinApproval = false,
                                  TransportMode transport = TransportMode.Direct, string joinCode = "",
-                                 bool ignoreModCompatibilityChecks = false)
+                                 bool ignoreModCompatibilityChecks = false,
+                                 bool simulationSync = true)
         {
             Transport = transport;
             JoinCode = joinCode ?? string.Empty;
@@ -90,6 +99,7 @@ namespace CS2MultiplayerMod.Core.Session
             GameVersion = gameVersion ?? string.Empty;
             DlcList = dlcList ?? System.Array.Empty<string>();
             RequireJoinApproval = requireJoinApproval;
+            SimulationSync = simulationSync;
         }
     }
 }

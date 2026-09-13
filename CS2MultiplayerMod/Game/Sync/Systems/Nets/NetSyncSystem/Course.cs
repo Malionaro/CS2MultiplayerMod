@@ -289,7 +289,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// </summary>
         private Entity CreateCourse(Entity prefab, Bezier4x3 bez, float length,
             Entity startSnap, float startT, int startKind, Entity endSnap, float endT, int endKind,
-            float2 startElevation, float2 endElevation, bool pinProfile)
+            float2 startElevation, float2 endElevation, bool pinProfile,
+            CoursePos? startShared, CoursePos? endShared)
         {
             // Never bake a dead entity into the course: a snap/split target resolved this frame could
             // have been torn down (a remote bulldoze, the local sim) before the course is consumed.
@@ -357,6 +358,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                         m_ParentMesh = -1,
                     },
                 });
+                MergeBatchNodes(definition, startShared, endShared);
                 EntityManager.AddComponent<Updated>(definition);
                 EntityManager.AddComponent<Deleted>(definition);
                 completed = true;
@@ -375,7 +377,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
         /// </summary>
         private Entity CreateNativeCourse(Entity prefab, NetPlacementCommand command, Bezier4x3 bez,
             Entity startSnap, float startT, int startKind, float2 startElevation,
-            Entity endSnap, float endT, int endKind, float2 endElevation)
+            Entity endSnap, float endT, int endKind, float2 endElevation,
+            CoursePos? startShared, CoursePos? endShared)
         {
             if (CourseTargetIsStale(startSnap)) startSnap = Entity.Null;
             if (CourseTargetIsStale(endSnap)) endSnap = Entity.Null;
@@ -426,6 +429,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
                     m_EndPosition = MakeNativeCoursePos(end, endSnap, endT, endKind,
                         endElevation),
                 });
+                MergeBatchNodes(definition, startShared, endShared);
                 EntityManager.AddComponent<Updated>(definition);
                 EntityManager.AddComponent<Deleted>(definition);
                 completed = true;
@@ -435,6 +439,27 @@ namespace CS2MultiplayerMod.Game.Sync.Systems.Net
             {
                 if (!completed && EntityManager.Exists(definition)) EntityManager.DestroyEntity(definition);
             }
+        }
+
+        private void MergeBatchNodes(Entity definition, CoursePos? startShared, CoursePos? endShared)
+        {
+            if (!startShared.HasValue && !endShared.HasValue) return;
+            NetCourse course = EntityManager.GetComponentData<NetCourse>(definition);
+            course.m_StartPosition = NetBatchNodes.Merge(course.m_StartPosition, startShared);
+            course.m_EndPosition = NetBatchNodes.Merge(course.m_EndPosition, endShared);
+            EntityManager.SetComponentData(definition, course);
+        }
+
+        private void RegisterBatchNodes(Entity definition, NetPrefabInfo info, int startKind,
+            int endKind, NetBatchNodes nodes)
+        {
+            // CoursePos can differ from the curve end, and profile pinning can change height flags.
+            // Remember the actual generator inputs, not a fresh reconstruction from the wire curve.
+            NetCourse course = EntityManager.GetComponentData<NetCourse>(definition);
+            if (startKind == KindFree)
+                nodes.Add(course.m_StartPosition, (uint)info.RequiredLayers, (uint)info.ConnectLayers);
+            if (endKind == KindFree)
+                nodes.Add(course.m_EndPosition, (uint)info.RequiredLayers, (uint)info.ConnectLayers);
         }
 
         private static CoursePos MakeNativeCoursePos(NetEndpointIntent intent,

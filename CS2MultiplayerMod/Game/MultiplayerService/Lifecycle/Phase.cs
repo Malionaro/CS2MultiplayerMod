@@ -372,7 +372,8 @@ namespace CS2MultiplayerMod.Game
                 requireJoinApproval: hosting && settings.RequireJoinApproval,
                 transport: transport,
                 joinCode: relay && !hosting ? joinCode : "",
-                ignoreModCompatibilityChecks: settings.IgnoreModCompatibilityChecks);
+                ignoreModCompatibilityChecks: settings.IgnoreModCompatibilityChecks,
+                simulationSync: settings.SimulationSync);
         }
 
     }

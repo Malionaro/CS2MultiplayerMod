@@ -113,6 +113,21 @@ namespace CS2MultiplayerMod.Game
             !_worldSyncBarrierActive &&
             (_session.Role == SessionRole.Host || _phase == ClientWorldPhase.InSession);
 
+        /// <summary>
+        /// Whether the host chose to replicate the simulation's own decisions this session -
+        /// zone-grown buildings, their occupants and tenants, and the demand behind them. The
+        /// host answers from its setting; a client answers with what the host announced when it
+        /// was accepted. Player edits do not consult this at all.
+        /// </summary>
+        public bool SimulationSyncEnabled => _session.SimulationSyncEnabled;
+
+        /// <summary>
+        /// <see cref="GameplaySyncReady"/> for the simulation half of the mod. Off, those systems
+        /// take the same branch a closed session takes: they drain what is queued and hand the
+        /// native simulation back the systems they were holding, so each city grows its own.
+        /// </summary>
+        public bool SimulationSyncReady => GameplaySyncReady && _session.SimulationSyncEnabled;
+
         internal string CommandDiagnosticSnapshot(long nowMs)
         {
             if (_appliedCommandTotal == 0) return "commands=0 lastCommand=none";
@@ -233,7 +248,7 @@ namespace CS2MultiplayerMod.Game
             Diagnostics.SyncLog.Warn(LogTopic.Session,
                 "World sync: asking the host to stream this city again - the previous handover " +
                 "resumed before the snapshot had been installed.");
-            _session.RequestWorldSync("resume arrived before the snapshot finished loading");
+            _session.RequestAutomaticWorldSync("resume arrived before the snapshot finished loading");
         }
 
         /// <summary>
@@ -323,7 +338,7 @@ namespace CS2MultiplayerMod.Game
                 "World sync: reloading this city from the host now (" + report.Summary() + ").");
             // Include the subject in the existing bounded reason field: host-only logs must
             // identify which inbox/operation failed on the client.
-            _session.RequestWorldSync(report.Reason + " [" + report.Subject + "]");
+            _session.RequestAutomaticWorldSync(report.Reason + " [" + report.Subject + "]");
         }
 
         // ---- Chat log (in-game hub panel) --------------------------------------

@@ -14,11 +14,11 @@ using Game.UI.Widgets;
 namespace CS2MultiplayerMod
 {
     [FileLocation(nameof(CS2MultiplayerMod))]
-    [SettingsUITabOrder(GeneralTab, JoinTab, HostTab)]
+    [SettingsUITabOrder(GeneralTab, JoinTab, HostTab, AdvancedTab)]
     [SettingsUIGroupOrder(GeneralGroup, StatusGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
-        HostSetupGroup, HostActionGroup)]
+        HostSetupGroup, HostActionGroup, CompatibilityGroup)]
     [SettingsUIShowGroupName(GeneralGroup, StatusGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
-        HostSetupGroup, HostActionGroup)]
+        HostSetupGroup, HostActionGroup, CompatibilityGroup)]
     public class Setting : ModSetting
     {
         // The options UI exposes general/session state plus join and host setup.
@@ -28,6 +28,7 @@ namespace CS2MultiplayerMod
         public const string GeneralTab = "General";
         public const string JoinTab = "Join";
         public const string HostTab = "Host";
+        public const string AdvancedTab = "Advanced";
 
         public const string GeneralGroup = "General";
         public const string StatusGroup = "Status";
@@ -36,6 +37,7 @@ namespace CS2MultiplayerMod
         public const string JoinActionGroup = "JoinAction";
         public const string HostSetupGroup = "HostSetup";
         public const string HostActionGroup = "HostAction";
+        public const string CompatibilityGroup = "Compatibility";
 
         /// <summary>Values of <see cref="HostConnection"/>. Stored as strings so the UI binding is one plain value.</summary>
         public const string ConnectionRelay = "relay";
@@ -194,16 +196,6 @@ namespace CS2MultiplayerMod
         public bool ShowPartnerMarkers { get; set; } = true;
 
         /// <summary>
-        /// Expert escape hatch for mod-specific compatibility checks. This permits other
-        /// active mods locally and lets a host admit a different CS2 Multiplayer Mod build.
-        /// Wire-protocol, game-version and DLC checks remain mandatory because bypassing
-        /// those can make the peers unable to interpret one another's data at all.
-        /// </summary>
-        [SettingsUISection(GeneralTab, GeneralGroup)]
-        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsInSession))]
-        public bool IgnoreModCompatibilityChecks { get; set; } = false;
-
-        /// <summary>
         /// Set once the player accepts the in-game disclaimer gate (shown before the
         /// first host/join). Persisted so it only appears once; intentionally hidden
         /// from the options screen and left out of <see cref="SetDefaults"/> so that
@@ -335,6 +327,22 @@ namespace CS2MultiplayerMod
         [SettingsUISection(HostTab, HostSetupGroup)]
         public string ResyncMinutes { get; set; } = "15";
 
+        /// <summary>
+        /// Host-side switch for the simulation half of the session, announced to every client
+        /// in the handshake so both sides agree for its whole life. Player edits - roads,
+        /// zoning, placed buildings, terrain, services, money, time - are unaffected either way.
+        ///
+        /// Off, each city runs its own zoning simulation: the buildings that grow, who lives and
+        /// works in them and the demand bars are decided locally and differ between players. That
+        /// is the cost; the gain is that none of the per-building capture and correction work
+        /// runs at all, which is the part of the mod whose cost scales with population.
+        ///
+        /// Persisted here but shown only in the in-game session settings: it is the host's
+        /// answer for one session, not a per-player option.
+        /// </summary>
+        [SettingsUIHidden]
+        public bool SimulationSync { get; set; } = true;
+
         [SettingsUISection(HostTab, HostActionGroup)]
         public string HostStatus => IsNotInGame()
             ? L10n.T(L10n.Key.HostLoadCityFirst)
@@ -456,6 +464,18 @@ namespace CS2MultiplayerMod
             set { if (Mod.Service != null) Mod.Service.RequestDisconnect(); }
         }
 
+        // ---- Advanced tab -------------------------------------------------------
+
+        /// <summary>
+        /// Expert escape hatch for mod-specific compatibility checks. This permits other
+        /// active mods locally and lets a host admit a different CS2 Multiplayer Mod build.
+        /// Wire-protocol, game-version and DLC checks remain mandatory because bypassing
+        /// those can make the peers unable to interpret one another's data at all.
+        /// </summary>
+        [SettingsUISection(AdvancedTab, CompatibilityGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsInSession))]
+        public bool IgnoreModCompatibilityChecks { get; set; } = false;
+
         public override void SetDefaults()
         {
             EnableMod = true;
@@ -476,6 +496,7 @@ namespace CS2MultiplayerMod
             JoinPassword = "";
             LanOnly = false;
             RequireJoinApproval = true;
+            SimulationSync = true;
             MaxPlayers = "8";
             ResyncMinutes = "15";
         }

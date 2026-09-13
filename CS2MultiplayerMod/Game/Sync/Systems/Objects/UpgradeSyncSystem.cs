@@ -295,6 +295,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (derived == BuildSyncSystem.NativeDeriveResult.Busy) return false;
             if (derived == BuildSyncSystem.NativeDeriveResult.Armed)
             {
+                TrackRemoteUpgradeOwner(owner, ownerPrefab);
                 _guard.Mark(UpgradeKey(command.PrefabName, position), now);
                 ConstructionCharger.ChargeUpgrade(EntityManager, prefab, command.PrefabName);
                 SyncLog.Detail(LogTopic.Buildings, "UpgradeSync realize: derived '" +
@@ -307,6 +308,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _guard.Mark(UpgradeKey(command.PrefabName, position), now);
             try
             {
+                TrackRemoteUpgradeOwner(owner, ownerPrefab);
                 RealizeUpgrade(prefab, owner, position, rotation,
                     EntityManager.GetComponentData<Transform>(owner), command.RandomSeed);
                 ConstructionCharger.ChargeUpgrade(EntityManager, prefab, command.PrefabName);
@@ -320,6 +322,20 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     command.PrefabName + "': " + ex);
             }
             return true;
+        }
+
+        private void TrackRemoteUpgradeOwner(Entity owner, Entity ownerPrefab)
+        {
+            if (owner == Entity.Null || !EntityManager.Exists(owner) ||
+                EntityManager.HasComponent<Deleted>(owner) ||
+                !EntityManager.HasComponent<Building>(owner) ||
+                !EntityManager.HasComponent<Transform>(owner)) return;
+            Transform transform = EntityManager.GetComponentData<Transform>(owner);
+            Entity road = EntityManager.GetComponentData<Building>(owner).m_RoadEdge;
+            bool connectedRoad = road != Entity.Null && EntityManager.Exists(road) &&
+                                 !EntityManager.HasComponent<Deleted>(road);
+            _buildSync.TrackRemoteBuilding(owner, ownerPrefab, transform.m_Position,
+                transform.m_Rotation, connectedRoad, "upgrade owner");
         }
 
         private Entity FindOwner(Entity ownerPrefab, float3 ownerPos)

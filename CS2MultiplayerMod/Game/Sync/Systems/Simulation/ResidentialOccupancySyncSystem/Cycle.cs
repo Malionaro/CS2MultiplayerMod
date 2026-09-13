@@ -46,7 +46,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         internal void ProcessHouseholdLifecycleBoundary()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || !service.GameplaySyncReady) return;
+            if (service == null || !service.SimulationSyncReady) return;
             if (service.Session.Role == SessionRole.Host)
                 ScanHostDepartures(service.NowMs);
             else
@@ -123,7 +123,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             MultiplayerService service = Mod.Service;
             if (service != null && service.Session.Role == SessionRole.Client)
                 ApplyLocalAuthority(service.Session);
-            else if (service == null || !service.GameplaySyncReady)
+            else if (service == null || !service.SimulationSyncReady)
                 RestoreLocalAuthority();
         }
 

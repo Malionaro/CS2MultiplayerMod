@@ -1,3 +1,4 @@
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,7 +28,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (!EntityManager.HasComponent<PropertyRenter>(household) ||
                 EntityManager.GetComponentData<PropertyRenter>(household).m_Property != property)
                 return false;
-            DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(property);
+            var renters = new BufferEdit<Renter>(EntityManager, property);
             bool found = false;
             for (int i = renters.Length - 1; i >= 0; i--)
             {
@@ -55,7 +56,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void RemoveRenterReference(Entity property, Entity household)
         {
             if (!EntityManager.HasBuffer<Renter>(property)) return;
-            DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(property);
+            var renters = new BufferEdit<Renter>(EntityManager, property);
             bool changed = false;
             for (int i = renters.Length - 1; i >= 0; i--)
             {

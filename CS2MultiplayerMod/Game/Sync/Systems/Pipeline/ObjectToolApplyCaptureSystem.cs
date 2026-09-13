@@ -7,20 +7,21 @@ using CS2MultiplayerMod.Game.Sync.Systems.Net;
 namespace CS2MultiplayerMod.Game.Sync.Systems
 {
     /// <summary>
-    /// Observes an object lifecycle tool after it has selected Apply and before ToolOutputSystem
-    /// consumes the standing preview. This is the exact hand-off point for one-shot upgrades,
-    /// relocations, rebuilds, and rootless asset-stamp transactions.
+    /// Captures committed tool previews immediately before ToolOutputSystem consumes them,
+    /// including one-shot object operations and zoning marquee releases.
     /// </summary>
     public partial class ObjectToolApplyCaptureSystem : GameSystemBase
     {
         private BuildSyncSystem _buildSync;
         private NetSyncSystem _netSync;
+        private ZoneSyncSystem _zoneSync;
 
         protected override void OnCreate()
         {
             base.OnCreate();
             _buildSync = World.GetOrCreateSystemManaged<BuildSyncSystem>();
             _netSync = World.GetOrCreateSystemManaged<NetSyncSystem>();
+            _zoneSync = World.GetOrCreateSystemManaged<ZoneSyncSystem>();
         }
 
         protected override void OnUpdate()
@@ -42,6 +43,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 // catches a net tool that selected Apply later in the phase.
                 _netSync.CaptureLocalNetApply();
                 _buildSync.CaptureLocalObjectApplyBeforeToolOutput();
+                if (_zoneSync == null) _zoneSync = World.GetOrCreateSystemManaged<ZoneSyncSystem>();
+                _zoneSync.CaptureLocalToolApply();
             }
         }
     }

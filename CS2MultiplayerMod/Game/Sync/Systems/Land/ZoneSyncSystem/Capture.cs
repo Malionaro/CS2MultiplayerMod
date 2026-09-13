@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Game.Tools;
 using Game.Zones;
 using Unity.Collections;
 using Unity.Entities;
@@ -6,184 +7,95 @@ using CS2MultiplayerMod.Core.Diagnostics;
 using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Diagnostics;
 using CS2MultiplayerMod.Game.Sync.Commands;
-using CS2MultiplayerMod.Game.Sync.Infrastructure;
 
 namespace CS2MultiplayerMod.Game.Sync.Systems
 {
     public partial class ZoneSyncSystem
     {
-        private void CaptureUpdatedBlocks(long now)
+        // Capture the standing preview on its commit frame. Updated real blocks also include
+        // native road/grid regeneration and remote writes; neither is a new player zoning edit.
+        internal void CaptureLocalToolApply()
         {
-            if (_updatedBlocks.IsEmptyIgnoreFilter) return;
+            MultiplayerService service = Mod.Service;
+            if (service == null || !service.GameplaySyncReady) return;
+            ToolBaseSystem active = _toolSystem.activeTool;
+            if (!(active is ZoneToolSystem) || active.applyMode != ApplyMode.Apply) return;
 
-            NativeArray<Entity> blocks = _updatedBlocks.ToEntityArray(Allocator.Temp);
+            NativeArray<Entity> previews = _zonePreviews.ToEntityArray(Allocator.Temp);
             try
             {
-                for (int i = 0; i < blocks.Length; i++)
+                for (int i = 0; i < previews.Length; i++)
                 {
-                    Block block = EntityManager.GetComponentData<Block>(blocks[i]);
-                    DynamicBuffer<Cell> cells = EntityManager.GetBuffer<Cell>(blocks[i], true);
+                    Temp temp = EntityManager.GetComponentData<Temp>(previews[i]);
+                    if ((temp.m_Flags & TempFlags.Delete) != 0 || !IsLiveBlock(temp.m_Original)) continue;
+                    Block block = EntityManager.GetComponentData<Block>(temp.m_Original);
+                    DynamicBuffer<Cell> cells = EntityManager.GetBuffer<Cell>(previews[i], true);
+                    DynamicBuffer<Cell> original = EntityManager.GetBuffer<Cell>(temp.m_Original, true);
+                    if (cells.Length != original.Length || cells.Length != block.m_Size.x * block.m_Size.y)
+                        continue;
 
-                    // Blocks update for many reasons (road edits, sim) — only zoned blocks
-                    // are worth broadcasting; an all-None block that was just unzoned still
-                    // carries names=0 + non-empty cells, which the receiver applies fine.
                     var names = new List<string>();
-                    var cellBytes = new byte[cells.Length];
-                    var cellStates = new byte[cells.Length];
-                    bool anyZoned = false;
+                    var values = new byte[cells.Length];
+                    var states = new byte[cells.Length];
+                    bool edited = false;
                     for (int c = 0; c < cells.Length; c++)
                     {
-                        cellStates[c] = PortableCellState(cells[c].m_State);
-                        cellBytes[c] = ZonePaintCommand.NoneCell;
-                        ushort zoneIndex = cells[c].m_Zone.m_Index;
-                        if (zoneIndex == 0) continue;
+                        values[c] = ZonePaintCommand.NoneCell;
+                        Cell before = original[c];
+                        Cell preview = cells[c];
+                        states[c] = PortableCellState(before.m_State);
+                        // An overridden cell is retained by the native commit. Its preview is not
+                        // a requested replacement, and must not erase another peer's zoning.
+                        if ((preview.m_State & CellFlags.Selected) == 0 ||
+                            (before.m_State & CellFlags.Overridden) != 0 ||
+                            (before.m_State & CellFlags.Visible) == 0 ||
+                            before.m_Zone.m_Index == preview.m_Zone.m_Index) continue;
 
-                        string zoneName = ResolveZoneName(zoneIndex);
-                        if (zoneName == null) continue;
-
-                        int tableIndex = names.IndexOf(zoneName);
-                        if (tableIndex < 0)
+                        if (preview.m_Zone.m_Index != 0)
                         {
-                            if (names.Count >= ZonePaintCommand.NoneCell) continue; // table full — never in practice
-                            names.Add(zoneName);
-                            tableIndex = names.Count - 1;
+                            string name = ResolveZoneName(preview.m_Zone.m_Index);
+                            if (string.IsNullOrEmpty(name)) continue;
+                            int index = names.IndexOf(name);
+                            if (index < 0) { index = names.Count; names.Add(name); }
+                            values[c] = (byte)index;
                         }
-                        cellBytes[c] = (byte)tableIndex;
-                        anyZoned = true;
+                        states[c] |= ZonePaintCommand.StateEdited;
+                        edited = true;
                     }
-
-                    // Updated is shared by many simulation paths. Remember the last zoning
-                    // content permanently rather than suppressing only one exact echo: unchanged
-                    // blocks must not become a recurring network command.
-                    ZoneBlockKey blockKey = StateKey(block);
-                    int contentHash = ContentHash(names, cellBytes);
-                    string guardKey = BlockKey(blockKey, contentHash);
-                    if (_guard.Consume(guardKey, now))
-                    {
-                        _lastZoneStates[blockKey] = new ZoneBaseline
-                        {
-                            Entity = blocks[i],
-                            Hash = contentHash,
-                        };
-                        if (anyZoned) _zonedBlocks.Add(blockKey);
-                        continue;
-                    }
-
-                    ZoneBaseline previous;
-                    if (_lastZoneStates.TryGetValue(blockKey, out previous) &&
-                        previous.Entity == blocks[i] && previous.Hash == contentHash)
-                        continue;
-
-                    // Untouched-by-zoning blocks churn constantly (road rebuilding etc.);
-                    // skip them unless we previously synced content for this block.
-                    if (!anyZoned && !_zonedBlocks.Contains(blockKey))
-                    {
-                        _lastZoneStates[blockKey] = new ZoneBaseline
-                        {
-                            Entity = blocks[i],
-                            Hash = contentHash,
-                        };
-                        continue;
-                    }
-
+                    if (!edited) continue;
                     var command = new ZonePaintCommand
                     {
-                        PosX = block.m_Position.x,
-                        PosY = block.m_Position.y,
-                        PosZ = block.m_Position.z,
-                        DirX = block.m_Direction.x,
-                        DirZ = block.m_Direction.y,
-                        SizeX = block.m_Size.x,
-                        SizeY = block.m_Size.y,
-                        ZoneNames = names.ToArray(),
-                        Cells = cellBytes,
-                        CellStates = cellStates,
+                        PosX = block.m_Position.x, PosY = block.m_Position.y, PosZ = block.m_Position.z,
+                        DirX = block.m_Direction.x, DirZ = block.m_Direction.y,
+                        SizeX = block.m_Size.x, SizeY = block.m_Size.y,
+                        ZoneNames = names.ToArray(), Cells = values, CellStates = states,
                     };
-
-                    bool coalesced = _outgoing.ContainsKey(blockKey);
-                    if (!_outgoing.TrySetLatest(blockKey, command, MaxBufferedOutgoingZones))
+                    ZoneBlockKey key = StateKey(block);
+                    ZonePaintCommand earlier;
+                    bool coalesced = _outgoing.TryGetValue(key, out earlier);
+                    if (coalesced) command.MergeEarlier(earlier);
+                    if (!_outgoing.TrySetLatest(key, command, MaxBufferedOutgoingZones))
                     {
-                        SyncInbox.RequestResync(CS2MultiplayerMod.Game.Diagnostics.ResyncReport
-                            .Create("zone outgoing latest-state queue overflow", "zone",
-                                CS2MultiplayerMod.Game.Diagnostics.ResyncEvidence.StreamLoss)
-                            .About("outgoing zone queue")
-                            .Tried("nothing - zoning changes were shed before they could be sent"));
-                        if (!_outgoingOverflowWarned)
-                        {
-                            _outgoingOverflowWarned = true;
-                            SyncLog.Warn(LogTopic.Land,
-                                "ZoneSync outgoing queue reached its safety limit; " +
-                                "requesting a fresh world sync.");
-                        }
-                        continue;
+                        RecoverFromQueueOverflow("zone outgoing patch queue overflow");
+                        return;
                     }
-
-                    _lastZoneStates[blockKey] = new ZoneBaseline
-                    {
-                        Entity = blocks[i],
-                        Hash = contentHash,
-                    };
-                    _zonedBlocks.Add(blockKey);
                     _diagnosticCaptured++;
                     if (coalesced) _diagnosticCoalesced++;
                 }
             }
-            finally
-            {
-                blocks.Dispose();
-            }
+            finally { previews.Dispose(); }
         }
 
         private void FlushOutgoing(MultiplayerSession session)
         {
             int sent = 0;
-            ZoneBlockKey blockKey;
+            ZoneBlockKey key;
             ZonePaintCommand command;
-            while (sent < MaxSendPerFrame && _outgoing.TryTake(out blockKey, out command))
+            while (sent < MaxSendPerFrame && _outgoing.TryTake(out key, out command))
             {
                 session.SendCommand(0, ZonePaintCommand.Id, command.Encode());
                 sent++;
                 _diagnosticSent++;
-            }
-            if (_outgoing.Count == 0) _outgoingOverflowWarned = false;
-        }
-
-        private static int ContentHash(List<string> names, byte[] cells)
-        {
-            unchecked
-            {
-                int hash = (int)2166136261;
-                for (int i = 0; i < cells.Length; i++)
-                {
-                    // Hash the NAME of each cell's zone, not the table index, so identical
-                    // zoning hashes identically regardless of table order.
-                    string name = cells[i] != ZonePaintCommand.NoneCell && cells[i] < names.Count
-                        ? names[cells[i]] : "";
-                    for (int c = 0; c < name.Length; c++) hash = (hash ^ name[c]) * 16777619;
-                    hash = (hash ^ '|') * 16777619;
-                }
-                return hash;
-            }
-        }
-
-        private int ContentHash(DynamicBuffer<Cell> cells, out bool anyZoned)
-        {
-            unchecked
-            {
-                int hash = (int)2166136261;
-                anyZoned = false;
-                for (int i = 0; i < cells.Length; i++)
-                {
-                    ushort zoneIndex = cells[i].m_Zone.m_Index;
-                    string name = zoneIndex == 0 ? null : ResolveZoneName(zoneIndex);
-                    if (!string.IsNullOrEmpty(name))
-                    {
-                        anyZoned = true;
-                        for (int c = 0; c < name.Length; c++) hash = (hash ^ name[c]) * 16777619;
-                    }
-                    hash = (hash ^ '|') * 16777619;
-                }
-                return hash;
             }
         }
 
@@ -199,6 +111,5 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if ((state & CellFlags.Occupied) != 0) result |= ZonePaintCommand.StateOccupied;
             return result;
         }
-
     }
 }

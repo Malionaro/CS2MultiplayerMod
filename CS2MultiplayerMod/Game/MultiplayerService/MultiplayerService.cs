@@ -433,43 +433,6 @@ namespace CS2MultiplayerMod.Game
             public string Time;
         }
 
-        // ---- Map (savegame) sync ---------------------------------------------
-
-        /// <summary>Default and lower bound for the periodic world re-stream, in minutes.</summary>
-        private const int DefaultResyncMinutes = 15;
-        private const int MinResyncMinutes = 5;
-
-        private bool _warnedResyncMinutes;
-
-        /// <summary>
-        /// How often the host re-streams its world as a drift-correcting safety net.
-        ///
-        /// A world re-sync saves, streams and (on every client) reloads the whole city, so an
-        /// interval far below the default is punishing. <c>int.TryParse</c> zeroes its out
-        /// parameter on failure, so an unparseable box ("", "15m", "off") or a "0" meant to
-        /// disable the feature must not fall through to a clamp of 1 - that produced a full
-        /// save+stream+reload every single minute.
-        /// </summary>
-        public long ResyncIntervalMs
-        {
-            get
-            {
-                string raw = Mod.Setting != null ? (Mod.Setting.ResyncMinutes ?? "").Trim() : "";
-
-                int minutes;
-                if (!int.TryParse(raw, out minutes) || minutes <= 0) minutes = DefaultResyncMinutes;
-                else if (minutes < MinResyncMinutes) minutes = MinResyncMinutes;
-
-                if (!_warnedResyncMinutes && minutes.ToString() != raw)
-                {
-                    _warnedResyncMinutes = true;
-                    _log.Warn(LogTopic.Session, "World re-sync interval '" + raw +
-                        "' is not a whole number of minutes >= " + MinResyncMinutes + "; using " +
-                        minutes + " minutes instead.");
-                }
-                return (long)minutes * 60000L;
-            }
-        }
 
 
 

@@ -69,7 +69,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private long _epochCounter;
         private long _epoch;
         private long _deadlineMs;
-        private long _lastResyncMs = -1;
         private long _saveStartMs;
         private float _resumeSpeed;
         private int _cleanFrames;
@@ -111,14 +110,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                 if (_state == RecoveryState.Idle)
                 {
-                    if (_lastResyncMs < 0 || !HasPeers(session))
-                        _lastResyncMs = now;
-                    else if (now - _lastResyncMs >= service.ResyncIntervalMs)
-                    {
-                        _recoveryRequested = true;
-                        _fullSnapshotRequested = true;
-                    }
-
                     if (_recoveryRequested) StartEpoch(service, session, now);
                     return;
                 }
@@ -173,7 +164,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _epoch = 0;
             _deadlineMs = 0;
             _cleanFrames = 0;
-            _lastResyncMs = -1;
         }
 
         private void DrainObserverEvents(MultiplayerSession session)
@@ -236,8 +226,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             service.PrepareHostWorldSyncUi(_joiningParticipants);
 
             // A join only owes the world to whoever joined; everyone else is already holding it
-            // and just crosses the barrier. Divergence-driven and periodic epochs re-baseline
-            // every peer, which is the whole point of them.
+            // and just crosses the barrier. Divergence-driven and player-requested epochs
+            // re-baseline every peer, which is the whole point of them.
             _snapshotTargets.Clear();
             if (_fullSnapshotRequested || _joiningParticipants.Count == 0)
                 _snapshotTargets.AddRange(_participants);
@@ -249,14 +239,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (!service.TryBeginHostWorldSync(_epoch, out _resumeSpeed))
             {
                 SyncLog.Error(LogTopic.Resync, "Could not enter the local world-sync barrier.");
-                ResetEpoch(now);
+                ResetEpoch();
                 return;
             }
             if (!session.BeginWorldSync(_epoch, _resumeSpeed, _participants, _snapshotTargets))
             {
                 service.AbortHostWorldSync(_epoch, _resumeSpeed);
                 SyncLog.Error(LogTopic.Resync, "Could not open world-sync epoch " + _epoch + ".");
-                ResetEpoch(now);
+                ResetEpoch();
                 return;
             }
             for (int i = 0; i < _joiningParticipants.Count; i++)
@@ -388,7 +378,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             service.CompleteHostWorldSync(_epoch, _resumeSpeed);
             SyncLog.Event(LogTopic.Resync, "World sync epoch " + _epoch + " completed for " +
                 targets.Count + " participant(s).");
-            ResetEpoch(now);
+            ResetEpoch();
 
             // A peer that joined after this snapshot was queued needs another snapshot. Open the
             // next Begin immediately after Resume in the same update, leaving no gameplay frame
@@ -412,10 +402,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
             SyncLog.Error(LogTopic.Resync, "World sync epoch " + _epoch + " aborted: " + reason +
                 ".");
-            ResetEpoch(service.NowMs);
+            ResetEpoch();
         }
 
-        private void ResetEpoch(long now)
+        private void ResetEpoch()
         {
             _state = RecoveryState.Idle;
             _saveTask = null;
@@ -427,7 +417,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _epoch = 0;
             _deadlineMs = 0;
             _cleanFrames = 0;
-            _lastResyncMs = now;
         }
 
         private void DisconnectMissing(MultiplayerSession session, HashSet<int> acknowledgements,
@@ -482,13 +471,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             for (int i = 0; i < _participants.Count; i++)
                 if (!set.Contains(_participants[i].Value)) return false;
             return true;
-        }
-
-        private static bool HasPeers(MultiplayerSession session)
-        {
-            foreach (Peer peer in session.Peers)
-                if (peer.Handshaked) return true;
-            return false;
         }
 
         private static bool HasNewParticipant(MultiplayerSession session,

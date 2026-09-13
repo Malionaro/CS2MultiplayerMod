@@ -55,7 +55,6 @@ namespace CS2MultiplayerMod.Localization
             public const string UiHostSession = "CS2MP.UI.HostSession";
             public const string UiLanOnly = "CS2MP.UI.LanOnly";
             public const string UiMaxPlayers = "CS2MP.UI.MaxPlayers";
-            public const string UiResyncMinutes = "CS2MP.UI.ResyncMinutes";
             public const string UiSyncWorld = "CS2MP.UI.SyncWorld";
             public const string UiLockedInSession = "CS2MP.UI.LockedInSession";
             public const string UiPlayers = "CS2MP.UI.Players";

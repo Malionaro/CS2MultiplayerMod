@@ -30,8 +30,7 @@ Which address you share depends on where the other players are:
 | Over the internet | Your public IPV4, from [api.ipify.org](https://api.ipify.org/)                                 |
 
 Session settings live in the multiplayer panel while you play, and in the mod options
-before you start: port, password, player limit, LAN Only, player approval and the world
-re-sync interval.
+before you start: port, password, player limit, LAN Only and player approval.
 
 ![](assets/img/ui-session-panel-stopped.png)
 

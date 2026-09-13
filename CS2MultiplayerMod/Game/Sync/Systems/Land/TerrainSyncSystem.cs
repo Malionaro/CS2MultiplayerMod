@@ -33,7 +33,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     /// brush domain through <c>ApplyBrushesSystem</c>. This runs the height/material/resource change
     /// on the normal path and tags each sample
     /// <c>Applied + Deleted</c>. Independent bounds cap samples-per-frame, decode scan and inbox size;
-    /// residual GPU/float drift is trued by the periodic world resync.
+    /// residual GPU/float drift is trued by a world resync.
     /// </summary>
     public partial class TerrainSyncSystem : GameSystemBase
     {
@@ -439,7 +439,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 // how long this stroke was applied for. Returning here dropped every sample in the
                 // frame - the ground moved locally and the other player was never told, which is a
                 // permanent divergence bought to avoid one mis-scaled sample. Fall back to a normal
-                // frame instead: the height rate is then slightly off and the periodic sync trues
+                // frame instead: the height rate is then slightly off and a later resync trues
                 // it, where a dropped stroke is never trued at all.
                 const float FallbackFrameSeconds = 1f / 60f;
                 float sourceDelta = UnityEngine.Time.unscaledDeltaTime;

@@ -323,10 +323,6 @@ namespace CS2MultiplayerMod
         [SettingsUISection(HostTab, HostSetupGroup)]
         public string MaxPlayers { get; set; } = "8";
 
-        [SettingsUITextInput]
-        [SettingsUISection(HostTab, HostSetupGroup)]
-        public string ResyncMinutes { get; set; } = "15";
-
         /// <summary>
         /// Host-side switch for the simulation half of the session, announced to every client
         /// in the handshake so both sides agree for its whole life. Player edits - roads,
@@ -498,7 +494,6 @@ namespace CS2MultiplayerMod
             RequireJoinApproval = true;
             SimulationSync = true;
             MaxPlayers = "8";
-            ResyncMinutes = "15";
         }
     }
 }

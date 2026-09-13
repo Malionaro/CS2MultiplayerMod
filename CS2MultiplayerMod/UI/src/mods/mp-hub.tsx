@@ -42,7 +42,6 @@ const LOC = {
     lanOnly: "CS2MP.UI.LanOnly",
     ...CONNECTION_LOC,
     maxPlayers: "CS2MP.UI.MaxPlayers",
-    resyncMinutes: "CS2MP.UI.ResyncMinutes",
     syncWorld: "CS2MP.UI.SyncWorld",
     saveCopy: "CS2MP.UI.SaveCopy",
     saveCopyTitle: "CS2MP.UI.SaveCopyTitle",
@@ -121,7 +120,6 @@ const hostPassword$ = bindValue<string>(GROUP, "hostPassword", "");
 const maxPlayers$ = bindValue<string>(GROUP, "maxPlayers", "8");
 const lanOnly$ = bindValue<boolean>(GROUP, "lanOnly", false);
 const requireApproval$ = bindValue<boolean>(GROUP, "requireApproval", true);
-const resyncMinutes$ = bindValue<string>(GROUP, "resyncMinutes", "15");
 const simulationSync$ = bindValue<boolean>(GROUP, "simulationSync", true);
 const playerList$ = bindValue<string>(GROUP, "playerList", "[]");
 const pendingJoins$ = bindValue<string>(GROUP, "pendingJoins", "[]");
@@ -903,19 +901,16 @@ const HeaderIconButton = ({ src, tooltip, selected, onSelect }: {
 };
 
 // The host/session settings fields. Connection-defining fields are locked while
-// a session runs (the running server cannot re-bind them); the re-sync interval
-// is read live by the host every cycle and stays editable for the host.
+// a session runs (the running server cannot re-bind them).
 const SettingsFields = () => {
     const t = useT();
     const inSession = useValue(inSession$);
-    const isHost = useValue(isHost$);
     const playerName = useValue(playerName$);
     const hostPort = useValue(hostPort$);
     const hostPassword = useValue(hostPassword$);
     const maxPlayers = useValue(maxPlayers$);
     const lanOnly = useValue(lanOnly$);
     const requireApproval = useValue(requireApproval$);
-    const resyncMinutes = useValue(resyncMinutes$);
     const simulationSync = useValue(simulationSync$);
     const hostConnection = useValue(hostConnection$);
     const sessionUsesRelay = useValue(sessionUsesRelay$);
@@ -987,12 +982,6 @@ const SettingsFields = () => {
                 value={requireApproval}
                 disabled={inSession}
                 onChange={(v) => trigger(GROUP, "setRequireApproval", v)}
-            />
-            <HubField
-                label={t(LOC.resyncMinutes, "World Re-sync (min)")}
-                value={resyncMinutes}
-                disabled={inSession && !isHost}
-                onChange={(v) => trigger(GROUP, "setResyncMinutes", v)}
             />
             {/* The host answers for the whole session, so this is fixed once one is
                 running - a client sees the host's answer, not its own. */}

@@ -16,7 +16,7 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
     /// (<c>PrefabRef.m_Prefab</c>) supplies the texture/archetype. Each sample carries the complete
     /// applied <c>Brush</c> state, since level/slope need target+start and line subdivision assigns
     /// opacity per sample - re-running subdivision on the receiver would drift. Consecutive samples
-    /// sharing a tool+brush are batched into one command; the periodic world resync trues residual
+    /// sharing a tool+brush are batched into one command; a world resync trues residual
     /// GPU/float drift.
     /// </summary>
     public sealed class TerrainBrushCommand : ISimulationCommand

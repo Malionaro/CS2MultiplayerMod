@@ -185,13 +185,12 @@ In normal mode this warning blocks Host and Join. Disable the listed mods in the
 
 Ignore Mod Compatibility Checks (Own Risk) is enabled while other mods are active, or a host admitted a different CS2 Multiplayer Mod build. This is advisory but serious: desyncs, missing prefabs, broken saves, and crashes are possible. The network protocol, game version, and DLC set are still checked.
 
-### Invalid port, player limit, or re-sync interval
+### Invalid port or player limit
 
 Recognizable log text:
 
 - `Invalid host port` or `Invalid join port` — the default port `25001` is used.
 - `Invalid max players` — the default of `8` is used; valid values are `2` through `32`.
-- `World re-sync interval ... is not a whole number` — the safe default is used.
 
 Correct the value in Options before the next session.
 

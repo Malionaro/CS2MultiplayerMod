@@ -24,7 +24,7 @@ The easiest way is through **Paradox Mods**: find the mod, add it to an **empty*
 
 ## Hosting a game
 
-1. In the mod settings, set your player name and choose the host port, password, max players, LAN-only mode, and world re-sync interval.
+1. In the mod settings, set your player name and choose the host port, password, max players, and LAN-only mode.
 2. Click **Multiplayer** on the main menu, then **Host Game**.
 3. Pick a connection. **Steam Relay** needs no setup and works if everyone owns the game on Steam. **Direct connection** syncs faster but the host has to make their port reachable, and it is the only option on Xbox App, Microsoft Store and Game Pass copies.
 4. With Steam Relay, copy the join code and send it to your friends. For direct connection, see [Direct connection](help/direct-connection.md).

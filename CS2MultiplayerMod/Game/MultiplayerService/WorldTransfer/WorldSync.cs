@@ -43,8 +43,8 @@ namespace CS2MultiplayerMod.Game
         public bool WorldSyncBarrierActive => _worldSyncBarrierActive;
 
         /// <summary>
-        /// Capture which newly connected players caused this epoch. Periodic/manual
-        /// re-syncs pass an empty list and receive neutral "refreshing world" copy.
+        /// Capture which newly connected players caused this epoch. Divergence-driven and
+        /// player-requested re-syncs pass an empty list and receive neutral "refreshing world" copy.
         /// </summary>
         internal void PrepareHostWorldSyncUi(IList<ConnectionId> joiningPlayers)
         {

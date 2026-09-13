@@ -39,6 +39,8 @@ The easiest way is through **Paradox Mods**: find the mod, add it to an **empty*
 3. Click **Join Session**.
 4. Wait while the host's city downloads and loads — larger cities take longer. The dialog closes itself once you're in.
 
+Partner markers also show coloured outlines around objects other players hover over, plus simplified building footprints, road curves and brush previews. You can hide these overlays with **Show Partner Markers** in the mod settings.
+
 ## Troubleshooting
 
 - **City looks out of sync?** Run `/sync` in chat, or click **Sync World Now** in the mod settings. Clients pull a fresh save from the host; the host refreshes every connected player.

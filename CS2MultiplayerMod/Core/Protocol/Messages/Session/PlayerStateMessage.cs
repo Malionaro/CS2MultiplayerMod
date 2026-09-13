@@ -2,7 +2,8 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
 {
     /// <summary>
     /// Player's camera focus (ground) and eye position (air) so others draw where they're
-    /// looking and flying height. Sent frequently, relayed by host. Lossy by design -
+    /// looking and flying height, plus bounded hover outlines. Sent frequently, relayed by host.
+    /// Lossy by design -
     /// only latest value matters, dropped updates harmless.
     /// </summary>
     public sealed class PlayerStateMessage : INetMessage
@@ -17,12 +18,13 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
         public float EyeY;
         public float EyeZ;
         public float Yaw;
+        public PlayerHoverShape[] Hover = System.Array.Empty<PlayerHoverShape>();
 
         public PlayerStateMessage() { }
 
         public PlayerStateMessage(int playerId,
             float posX, float posY, float posZ,
-            float eyeX, float eyeY, float eyeZ, float yaw)
+            float eyeX, float eyeY, float eyeZ, float yaw, PlayerHoverShape[] hover = null)
         {
             PlayerId = playerId;
             PosX = posX;
@@ -32,6 +34,7 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             EyeY = eyeY;
             EyeZ = eyeZ;
             Yaw = yaw;
+            Hover = hover ?? System.Array.Empty<PlayerHoverShape>();
         }
 
         public MessageType Type => MessageType.PlayerState;
@@ -46,6 +49,14 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             writer.WriteFloat(EyeY);
             writer.WriteFloat(EyeZ);
             writer.WriteFloat(Yaw);
+            if (Hover == null || Hover.Length > PlayerHoverShape.MaxShapes)
+                throw new ProtocolException("Too many hover shapes.");
+            writer.WriteByte((byte)Hover.Length);
+            foreach (PlayerHoverShape shape in Hover)
+            {
+                shape.Validate();
+                shape.Write(writer);
+            }
         }
 
         public void Read(NetworkReader reader)
@@ -58,6 +69,11 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             EyeY = WireGuard.ReadCoordinate(reader);
             EyeZ = WireGuard.ReadCoordinate(reader);
             Yaw = WireGuard.ReadFinite(reader);
+            int count = reader.ReadByte();
+            if (count > PlayerHoverShape.MaxShapes || count * PlayerHoverShape.WireSize > reader.Remaining)
+                throw new ProtocolException("Invalid hover shape count.");
+            Hover = count == 0 ? System.Array.Empty<PlayerHoverShape>() : new PlayerHoverShape[count];
+            for (int i = 0; i < count; i++) Hover[i] = PlayerHoverShape.Read(reader);
         }
     }
 }

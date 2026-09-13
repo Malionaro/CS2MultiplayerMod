@@ -282,6 +282,11 @@ namespace CS2MultiplayerMod
             // player is paused (so partners still see where they are), and GameSimulation
             // barely ticked it - the live log showed ~1 position sent per 30 s.
             updateSystem.UpdateAt<Game.Sync.Players.PlayerCursorSyncSystem>(SystemUpdatePhase.UIUpdate);
+            // Raycast phase, after the tool's own input: the only point where an extra raycast
+            // input still joins this frame's job. Without it the default tool's narrow search
+            // leaves every road, track and pipe out of what a partner is shown pointing at.
+            updateSystem.UpdateAfter<Game.Sync.Players.PlayerHoverRaycastSystem,
+                global::Game.Tools.ToolRaycastSystem>(SystemUpdatePhase.Raycast);
             // Renders the other players' camera positions as ground rings. Rendering phase
             // so the markers draw every frame, in every state (including paused).
             updateSystem.UpdateAt<Game.Sync.Players.RemotePlayerMarkerSystem>(SystemUpdatePhase.Rendering);

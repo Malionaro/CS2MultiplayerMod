@@ -5,6 +5,11 @@ description: "What changed in each release of the mod: new features, sync work a
 
 # Changelog
 
+## Unreleased
+
+* Partner markers now show hovered-object outlines and simplified building, road and brush placement previews in each player's colour. The existing Show Partner Markers setting controls these overlays.
+* Hover sharing requires matching protocol versions; all players must update together.
+
 ## Version 0.1.6.1h1 - 2026-09-03
 
 ### Fixes

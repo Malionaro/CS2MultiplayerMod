@@ -15,8 +15,8 @@ namespace CS2MultiplayerMod.Game.Sync.Players
     /// the map they are looking at - so partners can see where each other is working.
     /// The positions themselves are published by <see cref="PlayerCursorSyncSystem"/>
     /// (the gameplay camera pivot) and kept fresh in
-    /// <see cref="MultiplayerService.RemotePlayers"/>; this system renders them, easing
-    /// between the received positions and trailing a short motion smear behind them.
+    /// <see cref="MultiplayerService.RemotePlayers"/>; this system renders them,
+    /// interpolating between the received positions and trailing a short motion smear.
     /// </summary>
     public partial class RemotePlayerMarkerSystem : GameSystemBase
     {
@@ -44,11 +44,19 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         private const float BeamCameraClearance = 80f;
 
         /// <summary>
-        /// How far the drawn marker lags the newest received position. Positions arrive about ten
-        /// times a second, so without this the ring holds still for several frames and then jumps.
-        /// The lag has to be close to that gap to cover it, and all of it is marker latency.
+        /// How far behind the newest received position the marker is drawn. Positions arrive about
+        /// ten times a second and never evenly - they share the reliable stream with the city sync -
+        /// so the marker is drawn between the two positions that bracket this point instead of
+        /// chasing the newest one. Under the arrival gap it runs out of positions and stalls; over
+        /// it, the whole difference is marker latency.
         /// </summary>
-        private const float MarkerLagSeconds = 0.07f;
+        private const long PlayoutDelayMs = 140;
+
+        /// <summary>Rounds off the corner where one pair of positions hands over to the next.</summary>
+        private const float SmoothingSeconds = 0.035f;
+
+        /// <summary>Positions held per partner while they wait out the playout delay.</summary>
+        private const int SampleCapacity = 8;
 
         /// <summary>
         /// Lag of each smear copy behind the one in front of it. Times the partner's pan speed
@@ -95,6 +103,14 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         private CameraUpdateSystem _camera;
         private readonly Plane[] _frustum = new Plane[6];
 
+        /// <summary>A received position, stamped with the moment it arrived.</summary>
+        private struct Sample
+        {
+            public float3 Focus;
+            public float3 Eye;
+            public long AtMs;
+        }
+
         /// <summary>Where a partner's marker is drawn, as opposed to where they last reported being.</summary>
         private sealed class Trail
         {
@@ -103,11 +119,21 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             /// <summary>The smear, nearest first; each copy chases the one ahead of it.</summary>
             public readonly float3[] Smear = new float3[SmearStrength.Length];
             public long TouchedMs;
+            /// <summary>Received positions, oldest first, waiting out the playout delay.</summary>
+            public readonly Sample[] Samples = new Sample[SampleCapacity];
+            public int SampleCount;
+            public long LastSampleMs;
+            public readonly Core.Protocol.Messages.PlayerHoverShape[] Hover =
+                new Core.Protocol.Messages.PlayerHoverShape[Core.Protocol.Messages.PlayerHoverShape.MaxShapes];
+            public int HoverCount;
         }
 
         private readonly Dictionary<int, Trail> _trails = new Dictionary<int, Trail>();
         private readonly List<int> _departed = new List<int>();
         private long _lastFrameMs;
+        private long _hoverResetMs;
+        /// <summary>This frame's own camera, which sets how thick an outline has to be drawn.</summary>
+        private float3 _localEye;
 
         protected override void OnCreate()
         {
@@ -119,7 +145,12 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         protected override void OnUpdate()
         {
             MultiplayerService service = Mod.Service;
-            if (service == null || _overlay == null || !service.GameplaySyncReady) return;
+            if (service == null || _overlay == null || !service.GameplaySyncReady)
+            {
+                _trails.Clear();
+                _hoverResetMs = service != null ? service.NowMs : 0;
+                return;
+            }
             if (Mod.Setting != null && !Mod.Setting.ShowPartnerMarkers)
             {
                 if (_trails.Count != 0) _trails.Clear();
@@ -145,6 +176,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             bool culling = view != null;
             if (culling) GeometryUtility.CalculateFrustumPlanes(view, _frustum);
             float3 localEye = _camera != null ? _camera.position : default(float3);
+            _localEye = localEye;
 
             // Writing the buffer forces the game's overlay pass on for the frame and completes its
             // writers on this thread, so decide there is something visible to draw before taking it.
@@ -162,6 +194,8 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 // Eased before culling: the marker has to keep moving while it is off screen, or it
                 // lurches on the frame it comes back into view.
                 Trail trail = Advance(p, frameSeconds, now);
+                if (p.LastUpdateMs > _hoverResetMs) AdvanceHover(trail, p, frameSeconds, now);
+                else trail.HoverCount = 0;
                 float3 focus = trail.Focus;
                 float smearLength = math.distance(trail.Smear[trail.Smear.Length - 1], focus);
 
@@ -169,7 +203,8 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 Line3.Segment beam;
                 bool beamVisible = TryBuildBeam(focus, trail.Eye, localEye, out beam) &&
                                    (!culling || SegmentVisible(beam));
-                if (!ringVisible && !beamVisible) continue;
+                bool hoverVisible = HoverVisible(trail, culling);
+                if (!ringVisible && !beamVisible && !hoverVisible) continue;
 
                 if (!haveBuffer)
                 {
@@ -215,6 +250,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 // A line from that point up towards their camera, so you can see how high they
                 // are "flying" (and roughly where they are when zoomed out).
                 if (beamVisible) buffer.DrawLine(color, beam, BeamWidth, true);
+                if (hoverVisible) DrawHover(buffer, trail, color, culling);
             }
 
             // A player who left the session stops turning up in the loop above, so their trail is
@@ -223,43 +259,111 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         }
 
         /// <summary>
-        /// Moves a partner's drawn marker and its smear towards the position they last reported.
-        /// Each step closes the same fraction of the remaining distance per second, so the result
+        /// Moves a partner's drawn marker and its smear to where they were
+        /// <see cref="PlayoutDelayMs"/> ago, between the two positions that bracket that moment.
+        /// The remaining steps close the same fraction of the distance per second, so the result
         /// does not change with frame rate.
         /// </summary>
         private Trail Advance(RemotePlayer player, float frameSeconds, long now)
         {
-            var focus = new float3(player.X, player.Y, player.Z);
-            var eye = new float3(player.EyeX, player.EyeY, player.EyeZ);
-
             Trail trail;
             if (!_trails.TryGetValue(player.PlayerId, out trail))
             {
                 trail = new Trail();
                 _trails.Add(player.PlayerId, trail);
-                Land(trail, focus, eye);
             }
-            else if (math.distancesq(trail.Focus, focus) > SnapDistance * SnapDistance)
-            {
-                Land(trail, focus, eye);
-            }
-            else
-            {
-                float toMarker = 1f - math.exp(-frameSeconds / MarkerLagSeconds);
-                trail.Focus += (focus - trail.Focus) * toMarker;
-                trail.Eye += (eye - trail.Eye) * toMarker;
 
-                float toSmear = 1f - math.exp(-frameSeconds / SmearLagSeconds);
-                float3 ahead = trail.Focus;
-                for (int i = 0; i < trail.Smear.Length; i++)
-                {
-                    trail.Smear[i] += (ahead - trail.Smear[i]) * toSmear;
-                    ahead = trail.Smear[i];
-                }
+            if (player.LastUpdateMs != trail.LastSampleMs)
+            {
+                trail.LastSampleMs = player.LastUpdateMs;
+                var focus = new float3(player.X, player.Y, player.Z);
+                var eye = new float3(player.EyeX, player.EyeY, player.EyeZ);
+                if (Push(trail, focus, eye, player.LastUpdateMs)) Land(trail, focus, eye);
+            }
+
+            float3 playoutFocus, playoutEye;
+            if (Playout(trail, now - PlayoutDelayMs, out playoutFocus, out playoutEye))
+            {
+                float toMarker = 1f - math.exp(-frameSeconds / SmoothingSeconds);
+                trail.Focus += (playoutFocus - trail.Focus) * toMarker;
+                trail.Eye += (playoutEye - trail.Eye) * toMarker;
+            }
+
+            float toSmear = 1f - math.exp(-frameSeconds / SmearLagSeconds);
+            float3 ahead = trail.Focus;
+            for (int i = 0; i < trail.Smear.Length; i++)
+            {
+                trail.Smear[i] += (ahead - trail.Smear[i]) * toSmear;
+                ahead = trail.Smear[i];
             }
 
             trail.TouchedMs = now;
             return trail;
+        }
+
+        /// <summary>
+        /// Files a received position. True when the track had to start over: the first position, or
+        /// a step too large to be a pan - a minimap click, or a snap to a notification - which
+        /// interpolating through would drag the marker across half the map.
+        /// </summary>
+        private static bool Push(Trail trail, float3 focus, float3 eye, long atMs)
+        {
+            bool restart = trail.SampleCount == 0 ||
+                math.distancesq(trail.Samples[trail.SampleCount - 1].Focus, focus) >
+                    SnapDistance * SnapDistance;
+            if (restart) trail.SampleCount = 0;
+            else if (trail.SampleCount == trail.Samples.Length)
+            {
+                // Nothing is draining the buffer - a stalled marker, or a burst off the reliable
+                // stream - and it is the newest positions that are worth keeping.
+                for (int i = 1; i < trail.SampleCount; i++) trail.Samples[i - 1] = trail.Samples[i];
+                trail.SampleCount--;
+            }
+
+            trail.Samples[trail.SampleCount++] = new Sample { Focus = focus, Eye = eye, AtMs = atMs };
+            return restart;
+        }
+
+        /// <summary>
+        /// Where the partner was at <paramref name="renderMs"/>, between the two positions that
+        /// bracket it. False before anything has arrived. Out of newer positions the marker holds
+        /// the last one: extrapolating would overshoot every time a partner stops panning.
+        /// </summary>
+        private static bool Playout(Trail trail, long renderMs, out float3 focus, out float3 eye)
+        {
+            focus = default(float3);
+            eye = default(float3);
+            if (trail.SampleCount == 0) return false;
+
+            // Drop what the playout point has already passed, less the one it is coming from.
+            int passed = 0;
+            while (passed + 1 < trail.SampleCount &&
+                   trail.Samples[passed + 1].AtMs <= renderMs) passed++;
+            if (passed != 0)
+            {
+                for (int i = passed; i < trail.SampleCount; i++)
+                    trail.Samples[i - passed] = trail.Samples[i];
+                trail.SampleCount -= passed;
+            }
+
+            Sample from = trail.Samples[0];
+            focus = from.Focus;
+            eye = from.Eye;
+            if (trail.SampleCount == 1) return true;
+
+            Sample to = trail.Samples[1];
+            long span = to.AtMs - from.AtMs;
+            if (span <= 0)
+            {
+                focus = to.Focus;
+                eye = to.Eye;
+                return true;
+            }
+
+            float t = math.saturate((renderMs - from.AtMs) / (float)span);
+            focus = math.lerp(from.Focus, to.Focus, t);
+            eye = math.lerp(from.Eye, to.Eye, t);
+            return true;
         }
 
         /// <summary>Puts the marker and its whole smear on one position, with nothing in between.</summary>

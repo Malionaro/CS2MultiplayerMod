@@ -582,6 +582,8 @@ namespace CS2MultiplayerMod.Game
         public float EyeY;
         public float EyeZ;
         public float Yaw;
+        public Core.Protocol.Messages.PlayerHoverShape[] Hover =
+            System.Array.Empty<Core.Protocol.Messages.PlayerHoverShape>();
         public long LastUpdateMs;
     }
 }

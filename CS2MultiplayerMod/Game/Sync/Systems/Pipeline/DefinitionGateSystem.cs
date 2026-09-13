@@ -24,6 +24,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private NetSyncSystem _netSync;
         private BuildSyncSystem _buildSync;
         private ToolSystem _toolSystem;
+        private Players.PlayerCursorSyncSystem _playerCursor;
         private EntityQuery _foreignDefinitions;
 
         protected override void OnCreate()
@@ -32,6 +33,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _netSync = World.GetOrCreateSystemManaged<NetSyncSystem>();
             _buildSync = World.GetOrCreateSystemManaged<BuildSyncSystem>();
             _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+            _playerCursor = World.GetOrCreateSystemManaged<Players.PlayerCursorSyncSystem>();
 
             // Fresh, entity-visible definitions that are not a sync feeder's own (those carry
             // Deleted from birth) - i.e. the active tool's buffered preview definitions.
@@ -70,6 +72,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                                      _toolSystem.activeTool is global::Game.Tools.NetToolSystem;
                 if (!armedCommit && !activeNetTool)
                 {
+                    _playerCursor.ObserveHoverDefinitions(default(NativeArray<Entity>));
                     _netSync.ObserveLocalNetDefinitions(default(NativeArray<Entity>));
                     if (_buildSync == null)
                         _buildSync = World.GetOrCreateSystemManaged<BuildSyncSystem>();
@@ -87,6 +90,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     // before the optional armed-window gate below and is also needed when no commit is
                     // armed: the next Apply frame publishes this preview rather than inferring from
                     // its final Created edges.
+                    _playerCursor.ObserveHoverDefinitions(definitions);
                     _netSync.ObserveLocalNetDefinitions(definitions);
                     // A newly selected net or a click-frame grid can have no usable graph at the two
                     // earlier pre-output hooks: its definitions exist only in ToolOutputBarrier's

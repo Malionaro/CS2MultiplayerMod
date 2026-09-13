@@ -23,12 +23,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     // at 0,32 ms per building, which is 38 ms per update once a partition holds a few hundred
     // houses.
     //
-    // This folds the same fields the old hash folded, in place, allocating nothing. When it
-    // reports a difference the caller still runs the real capture: that is what validates the
-    // roster and what registers the households and residents the tombstone scans watch, and a
-    // property that just changed is about to be paged anyway. The stored hash is only ever
-    // compared against another probe hash, so the value need not agree with the old one - only the
-    // notion of "changed" does.
+    // Fold observed fields in place without allocating. A change queues the property's
+    // identity; the page builder performs the full validated capture at send time, including
+    // household/citizen departure tracking. Never serialize a roster merely to discard it.
+    // Probe hashes are compared only with other probe hashes, not with wire snapshots.
     //
     // Reads stay on EntityManager rather than a ComponentLookup. Every EntityManager read
     // completes the write dependency for the type it touches first; a lookup acquired outside

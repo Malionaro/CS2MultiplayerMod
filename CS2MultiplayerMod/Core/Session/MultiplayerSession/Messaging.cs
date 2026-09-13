@@ -307,12 +307,16 @@ namespace CS2MultiplayerMod.Core.Session
             NotifyStateEdit(edit);
         }
 
-        /// <summary>Publish the local player's camera focus and eye position to the others.</summary>
-        public void SendPlayerState(float x, float y, float z, float eyeX, float eyeY, float eyeZ, float yaw)
+        /// <summary>Publish the local player's camera and display-only hover outlines.</summary>
+        public void SendPlayerState(float x, float y, float z, float eyeX, float eyeY, float eyeZ, float yaw,
+            PlayerHoverShape[] hover = null)
         {
             if (Status != SessionStatus.Connected || _worldSyncSuspended) return;
 
-            var message = new PlayerStateMessage(LocalPlayerId, x, y, z, eyeX, eyeY, eyeZ, yaw);
+            // Presence is refreshed at 10 Hz. Skip samples under backpressure instead of
+            // adding stale hover traffic behind city updates on the reliable stream.
+            if (_transport == null || _transport.PendingSendBytes > 16 * 1024) return;
+            var message = new PlayerStateMessage(LocalPlayerId, x, y, z, eyeX, eyeY, eyeZ, yaw, hover);
             if (Role == SessionRole.Host)
                 BroadcastToAll(message, ConnectionId.None);
             else
@@ -327,7 +331,7 @@ namespace CS2MultiplayerMod.Core.Session
                 state.PlayerId = peer.PlayerId;
 
             NotifyPlayerState(state);
-            if (Role == SessionRole.Host)
+            if (Role == SessionRole.Host && _transport != null && _transport.PendingSendBytes <= 16 * 1024)
                 BroadcastToAll(state, from); // fan a client's position out to the others
         }
 

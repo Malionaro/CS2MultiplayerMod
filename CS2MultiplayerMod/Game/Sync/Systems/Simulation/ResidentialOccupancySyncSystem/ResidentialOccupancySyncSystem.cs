@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using CS2MultiplayerMod.Core.Diagnostics;
@@ -470,28 +470,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             // exclusive, so the profiler's total stays a sum of what it lists.
             if (session.Role == SessionRole.Host)
             {
-                using (Diagnostics.SyncProfiler.Measure("Occupancy.HostScan", Diagnostics.SyncZone.Residential))
-                {
-                    DropIncomingPages();
-                    // Departures are sampled by ResidentialOccupancyDepartureCaptureSystem, which
-                    // sits directly in front of the native executor at that executor's own
-                    // interval. Repeating the walk here only ever re-read a query it had already
-                    // drained on a more recent frame.
+                DropIncomingPages();
+                using (Diagnostics.SyncProfiler.Measure("Occupancy.HostHouseholds", Diagnostics.SyncZone.Residential))
                     ScanTrackedHostHouseholds(service.NowMs);
+                using (Diagnostics.SyncProfiler.Measure("Occupancy.HostCitizens", Diagnostics.SyncZone.Residential))
                     ScanTrackedHostCitizens(service.NowMs);
+                using (Diagnostics.SyncProfiler.Measure("Occupancy.HostScan", Diagnostics.SyncZone.Residential))
                     ScanHostChanges(bucket);
-                }
             }
             else
             {
-                using (Diagnostics.SyncProfiler.Measure("Occupancy.Apply", Diagnostics.SyncZone.Residential))
-                {
-                    // Normally the city-state pump has already turned every arrived page into
-                    // cache entries. Pump once more as a harmless fallback before this bucket
-                    // is consumed.
+                using (Diagnostics.SyncProfiler.Measure("Occupancy.Pump", Diagnostics.SyncZone.Residential))
                     PumpIncoming();
-                    ApplyPending(bucket);
-                }
+                ApplyPending(bucket);
             }
             ReportStats(session, service.NowMs);
         }

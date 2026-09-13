@@ -88,6 +88,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// on a page and is handled immediately through the dirty queue instead.
         /// </summary>
         private const int MaxTenancyWalkedPerUpdate = 64;
+        private const int MaxTenancyDirtyPerBoundary = 128;
 
         /// <summary>
         /// Arrived pages are applied on a 16-frame boundary rather than waiting for the target
@@ -181,6 +182,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private readonly List<Entity> _efficiencyDirty = new List<Entity>();
         private readonly HashSet<Entity> _efficiencyDirtyMembers = new HashSet<Entity>();
         private readonly List<Entity> _stateRetryScratch = new List<Entity>();
+        private readonly HashSet<Entity> _stateAppliedThisBoundary = new HashSet<Entity>();
         private readonly List<Entity> _tenancyOrder = new List<Entity>();
         private int _tenancyCursor;
         private int _stateCursor;
@@ -459,6 +461,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _stateRetries.Clear();
             _clientEmployeeObserved.Clear();
             _stateRetryScratch.Clear();
+            _stateAppliedThisBoundary.Clear();
             _tenancyOrder.Clear();
             _tenancyCursor = 0;
             _stateCursor = 0;
@@ -475,6 +478,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _desiredEmployeeEntities.Clear();
             _employeeEntityScratch.Clear();
             _employeeRemovalScratch.Clear();
+            _employeeRemovalMembers.Clear();
+            _partialEmployeeStates.Clear();
+            _partialEmployeeSeen.Clear();
             _commercialBucket.Clear();
             _industrialBucket.Clear();
             _officeBucket.Clear();

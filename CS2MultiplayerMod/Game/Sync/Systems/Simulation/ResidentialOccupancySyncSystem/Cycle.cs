@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using CS2MultiplayerMod.Core.Diagnostics;
@@ -180,6 +180,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _bootstrapIdentityIndexBuilt = false;
             _unreachableSeen.Clear();
             _localHouseholds.Clear();
+            _localHouseholdMembers.Clear();
+            _reconciledHouseholdIds.Clear();
             _memberScratch.Clear();
             _claimedHouseholds.Clear();
             _claimedCitizens.Clear();
@@ -225,6 +227,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             ulong discardedTrackedCitizen;
             while (_hostCitizenOrder.TryDequeue(out discardedTrackedCitizen)) { }
             _hostHouseholds.Clear();
+            _hostRenterMembership.Reset();
             _hostHouseholdOrderMembers.Clear();
             ulong discardedTrackedHousehold;
             while (_hostHouseholdOrder.TryDequeue(out discardedTrackedHousehold)) { }

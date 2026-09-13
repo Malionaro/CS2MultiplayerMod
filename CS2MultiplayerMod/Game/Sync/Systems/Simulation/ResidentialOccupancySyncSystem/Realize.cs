@@ -78,6 +78,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             new Dictionary<int, List<Entity>>();
         private bool _bootstrapIdentityIndexBuilt;
         private readonly List<Entity> _localHouseholds = new List<Entity>();
+        private readonly HashSet<Entity> _localHouseholdMembers = new HashSet<Entity>();
+        private readonly HashSet<ulong> _reconciledHouseholdIds = new HashSet<ulong>();
         private readonly List<Entity> _memberScratch = new List<Entity>();
         private readonly HashSet<Entity> _claimedHouseholds = new HashSet<Entity>();
         private readonly HashSet<Entity> _claimedCitizens = new HashSet<Entity>();

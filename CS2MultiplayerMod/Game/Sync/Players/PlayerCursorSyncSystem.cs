@@ -11,7 +11,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
     /// <summary>
     /// Publishes the local player's map focus (the camera pivot - the point on the
     /// ground the player is looking at) a few times a second, and lets the service
-    /// collect the other players' positions for drawing their cursors. Unlike the
+    /// collect the other players' positions and display-only hover shapes. Unlike the
     /// city-state channels this is per-player and lossy: only the newest position
     /// matters. Rendering the remote cursors is handled separately.
     /// </summary>
@@ -29,6 +29,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         {
             base.OnCreate();
             _camera = World.GetExistingSystemManaged<CameraUpdateSystem>();
+            CreateHoverCapture();
         }
 
         protected override void OnUpdate()
@@ -36,10 +37,10 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             using (Diagnostics.SyncProfiler.Measure("PartnerCursor"))
             {
                 MultiplayerService service = Mod.Service;
-                if (service == null) return;
+                if (service == null) { ClearHoverCapture(); return; }
 
                 MultiplayerSession session = service.Session;
-                if (!service.GameplaySyncReady) return;
+                if (!service.GameplaySyncReady) { ClearHoverCapture(); return; }
 
                 long now = _clock.ElapsedMilliseconds;
                 if (now - _lastSentMs < SendIntervalMs) return;
@@ -65,7 +66,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                     yaw = controller.rotation.y;
                 }
 
-                session.SendPlayerState(focus.x, focus.y, focus.z, eye.x, eye.y, eye.z, yaw);
+                session.SendPlayerState(focus.x, focus.y, focus.z, eye.x, eye.y, eye.z, yaw, CaptureHover());
                 _sent++;
 
                 if (now - _lastLogMs >= 30000)

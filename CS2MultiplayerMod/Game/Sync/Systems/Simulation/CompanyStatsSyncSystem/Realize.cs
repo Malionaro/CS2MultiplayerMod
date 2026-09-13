@@ -433,7 +433,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             CompanyStatsEfficiency[] wanted = entry.Efficiencies;
             int wantedCount = wanted == null ? 0 : wanted.Length;
-            DynamicBuffer<Efficiency> local = EntityManager.GetBuffer<Efficiency>(property);
+            var local = new BufferEdit<Efficiency>(EntityManager, property);
             bool changed = local.Length != wantedCount;
             if (!changed)
             {
@@ -474,12 +474,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             using (Diagnostics.SyncProfiler.Measure("Companies.StateBoundary"))
             {
                 _stateRetryScratch.Clear();
+                _stateAppliedThisBoundary.Clear();
                 int processed = _stateDirty.Count < MaxStateDirtyPerBoundary
                     ? _stateDirty.Count : MaxStateDirtyPerBoundary;
                 for (int i = 0; i < processed; i++)
                 {
                     Entity property = _stateDirty[i];
                     _stateDirtyMembers.Remove(property);
+                    _stateAppliedThisBoundary.Add(property);
                     if (ApplyCachedCompany(property)) _stateRetries.Remove(property);
                     else if (_cache.ContainsKey(property)) _stateRetryScratch.Add(property);
                 }
@@ -488,13 +490,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     RetryStateDirty(_stateRetryScratch[i]);
                 _stateRetryScratch.Clear();
 
+                // A small cache must not wrap and apply the same company dozens of times.
+                int walkLimit = Math.Min(MaxStateWalkedPerBoundary, _tenancyOrder.Count);
                 int walked = 0;
-                while (walked < MaxStateWalkedPerBoundary && _tenancyOrder.Count > 0)
+                while (walked < walkLimit && _tenancyOrder.Count > 0)
                 {
                     if (_stateCursor >= _tenancyOrder.Count) _stateCursor = 0;
                     Entity property = _tenancyOrder[_stateCursor++];
                     walked++;
-                    if (!_cache.ContainsKey(property)) continue;
+                    if (!_stateAppliedThisBoundary.Add(property) ||
+                        !_cache.ContainsKey(property)) continue;
                     if (ApplyCachedCompany(property)) _stateRetries.Remove(property);
                     else RetryStateDirty(property);
                 }
@@ -824,40 +829,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             return resolved;
         }
 
-        /// <summary>
-        /// The goods on the shelves. This is the one part of the block that is not purely
-        /// displayed - what a business holds feeds its own selling, producing and delivery - so it
-        /// is written as an absolute statement and every resource the host did not report is
-        /// cleared, exactly as an absolute roster clears an absent household.
-        /// </summary>
-        private void ApplyResources(Entity company, CompanyStatsEntry entry)
-        {
-            if (!EntityManager.HasBuffer<global::Game.Economy.Resources>(company)) return;
-            CompanyStatsResource[] wanted = entry.Resources;
-            DynamicBuffer<global::Game.Economy.Resources> resources =
-                EntityManager.GetBuffer<global::Game.Economy.Resources>(company);
-
-            bool changed = false;
-            for (int i = 0; i < EconomyUtils.ResourceCount; i++)
-            {
-                Resource resource = EconomyUtils.GetResource(i);
-                int desired = 0;
-                if (wanted != null)
-                {
-                    for (int w = 0; w < wanted.Length; w++)
-                    {
-                        if (wanted[w].Index != i) continue;
-                        desired = wanted[w].Amount;
-                        break;
-                    }
-                }
-                if (EconomyUtils.GetResources(resource, resources) == desired) continue;
-                EconomyUtils.SetResources(resource, resources, desired);
-                changed = true;
-            }
-            if (changed) _correctedResources++;
-        }
-
         private void ApplyTradeCosts(Entity company, CompanyStatsEntry entry)
         {
             if (!EntityManager.HasBuffer<TradeCost>(company)) return;
@@ -986,87 +957,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             return allResolved;
         }
 
-        private bool ReconcileEmployeeBuffer(Entity company, bool absolute)
-        {
-            _employeeRemovalScratch.Clear();
-            var employees = new BufferEdit<Employee>(EntityManager, company);
-            bool changed = false;
-            if (absolute)
-            {
-                for (int i = 0; i < employees.Length; i++)
-                {
-                    Entity citizen = employees[i].m_Worker;
-                    if (_desiredEmployeeEntities.Contains(citizen) ||
-                        _employeeRemovalScratch.Contains(citizen)) continue;
-                    _employeeRemovalScratch.Add(citizen);
-                }
-
-                bool same = employees.Length == _resolvedEmployeeScratch.Count;
-                if (same)
-                {
-                    for (int i = 0; i < employees.Length; i++)
-                    {
-                        if (employees[i].m_Worker == _resolvedEmployeeScratch[i].Citizen &&
-                            employees[i].m_Level == _resolvedEmployeeScratch[i].State.Level)
-                            continue;
-                        same = false;
-                        break;
-                    }
-                }
-                if (same) return false;
-
-                employees.Clear();
-                for (int i = 0; i < _resolvedEmployeeScratch.Count; i++)
-                {
-                    employees.Add(new Employee
-                    {
-                        m_Worker = _resolvedEmployeeScratch[i].Citizen,
-                        m_Level = _resolvedEmployeeScratch[i].State.Level,
-                    });
-                }
-                return true;
-            }
-
-            // Partial roster: update/add only the residents explicitly named by the host.
-            for (int i = 0; i < _resolvedEmployeeScratch.Count; i++)
-            {
-                ResolvedEmployee wanted = _resolvedEmployeeScratch[i];
-                int first = -1;
-                for (int e = 0; e < employees.Length; e++)
-                {
-                    if (employees[e].m_Worker != wanted.Citizen) continue;
-                    first = e;
-                    break;
-                }
-                if (first < 0)
-                {
-                    employees.Add(new Employee
-                    {
-                        m_Worker = wanted.Citizen,
-                        m_Level = wanted.State.Level,
-                    });
-                    changed = true;
-                    continue;
-                }
-                if (employees[first].m_Level != wanted.State.Level)
-                {
-                    employees[first] = new Employee
-                    {
-                        m_Worker = wanted.Citizen,
-                        m_Level = wanted.State.Level,
-                    };
-                    changed = true;
-                }
-                for (int e = employees.Length - 1; e > first; e--)
-                {
-                    if (employees[e].m_Worker != wanted.Citizen) continue;
-                    employees.RemoveAt(e);
-                    changed = true;
-                }
-            }
-            return changed;
-        }
-
         private void RemoveEmployeeReference(Entity workplace, Entity citizen)
         {
             if (workplace == Entity.Null || !EntityManager.Exists(workplace) ||
@@ -1192,8 +1082,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             PruneSettling();
 
             int created = 0, retired = 0;
+            // A district can dirty thousands of settled properties without creating a single
+            // company. Structural ceilings alone do not bound that comparison workload.
+            int dirtyLimit = Math.Min(MaxTenancyDirtyPerBoundary, _dirty.Count);
             int processed = 0;
-            while (processed < _dirty.Count &&
+            while (processed < dirtyLimit &&
                    (created < MaxCompaniesCreatedPerUpdate ||
                     retired < MaxCompaniesRetiredPerUpdate))
             {
@@ -1206,8 +1099,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (created >= MaxCompaniesCreatedPerUpdate && retired >= MaxCompaniesRetiredPerUpdate)
                 return;
 
+            int walkLimit = Math.Min(MaxTenancyWalkedPerUpdate, _tenancyOrder.Count);
             int walked = 0;
-            while (walked < MaxTenancyWalkedPerUpdate && _tenancyOrder.Count > 0 &&
+            while (walked < walkLimit && _tenancyOrder.Count > 0 &&
                    (created < MaxCompaniesCreatedPerUpdate ||
                     retired < MaxCompaniesRetiredPerUpdate))
             {

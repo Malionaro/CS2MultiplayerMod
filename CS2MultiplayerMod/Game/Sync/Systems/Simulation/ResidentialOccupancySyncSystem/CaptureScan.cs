@@ -135,16 +135,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         continue;
                     }
 
-                    // Something moved, or this is a first sighting. Take the real capture now: it
-                    // is what validates the roster and what registers the households and residents
-                    // the tombstone scans watch, and this property is about to be paged anyway.
-                    OccupancyProperty captured;
-                    if (!TryCaptureProperty(property, out captured)) continue;
+                    // Queue an identity, not a throwaway serialized roster. The page builder
+                    // captures current state, validates it and registers departure tracking before
+                    // emission. Previously we allocated/captured here and repeated it at send time.
+                    // Identities never sent to a peer do not need speculative tombstone tracking.
+                    PropertyRentIdentity identity;
+                    if (!TryGetHostPropertyIdentity(property, out identity)) continue;
                     if (!known)
                     {
                         _hostObserved[property] = new HostObserved { Hash = hash, Bucket = bucket };
                         _hostObservedBuckets[bucket].Add(property);
-                        if (initialized) Prioritize(property, captured.Identity);
+                        if (initialized) Prioritize(property, identity);
                     }
                     else if (observed.Stale)
                     {
@@ -155,7 +156,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     else
                     {
                         observed.Hash = hash;
-                        if (initialized) Prioritize(property, captured.Identity);
+                        if (initialized) Prioritize(property, identity);
                     }
                 }
                 if (cursor >= properties.Length) { cursor = 0; wrapped = true; }

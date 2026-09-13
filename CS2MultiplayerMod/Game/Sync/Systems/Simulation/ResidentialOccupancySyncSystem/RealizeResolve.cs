@@ -360,28 +360,35 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             _budget.Reset();
             _appliedThisUpdate.Clear();
-            PruneSettling();
-            RepairStagedTransfers();
-            ApplyCitizenRetirements();
-
-            // Anything created last update is re-examined now: the game's own initialization has
-            // since run over those residents, randomising the very fields the roster specifies.
-            for (int i = 0; i < _reapply.Count; i++) MarkDirty(_reapply[i]);
-            _reapply.Clear();
-            _reapplyRequested.Clear();
-
-            int processed = 0;
-            while (processed < _dirty.Count && !_budget.Exhausted)
+            using (Diagnostics.SyncProfiler.Measure("Occupancy.Maintenance", Diagnostics.SyncZone.Residential))
             {
-                Entity property = _dirty[processed++];
-                _dirtyMembers.Remove(property);
-                ApplyOne(property);
+                PruneSettling();
+                RepairStagedTransfers();
+                ApplyCitizenRetirements();
             }
-            if (processed > 0) _dirty.RemoveRange(0, processed);
 
-            if (!_budget.Exhausted) ApplyBucket(bucket);
-            _appliedThisUpdate.Clear();
-            SweepUnreachableHouseholds();
+            using (Diagnostics.SyncProfiler.Measure("Occupancy.Apply", Diagnostics.SyncZone.Residential))
+            {
+                // Anything created last update is re-examined now: the game's own initialization has
+                // since run over those residents, randomising the very fields the roster specifies.
+                for (int i = 0; i < _reapply.Count; i++) MarkDirty(_reapply[i]);
+                _reapply.Clear();
+                _reapplyRequested.Clear();
+
+                int processed = 0;
+                while (processed < _dirty.Count && !_budget.Exhausted)
+                {
+                    Entity property = _dirty[processed++];
+                    _dirtyMembers.Remove(property);
+                    ApplyOne(property);
+                }
+                if (processed > 0) _dirty.RemoveRange(0, processed);
+
+                if (!_budget.Exhausted) ApplyBucket(bucket);
+                _appliedThisUpdate.Clear();
+            }
+            using (Diagnostics.SyncProfiler.Measure("Occupancy.Unreachable", Diagnostics.SyncZone.Residential))
+                SweepUnreachableHouseholds();
         }
     }
 }

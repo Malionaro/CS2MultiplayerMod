@@ -248,6 +248,7 @@ namespace CS2MultiplayerMod.Game
             player.EyeY = state.EyeY;
             player.EyeZ = state.EyeZ;
             player.Yaw = state.Yaw;
+            player.Hover = state.Hover;
             player.LastUpdateMs = _clock.ElapsedMilliseconds;
         }
 

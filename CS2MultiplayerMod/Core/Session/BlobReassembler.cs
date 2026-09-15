@@ -1,4 +1,4 @@
-using System.IO;
+using System;
 using CS2MultiplayerMod.Core.Protocol;
 
 namespace CS2MultiplayerMod.Core.Session
@@ -13,16 +13,18 @@ namespace CS2MultiplayerMod.Core.Session
     /// </summary>
     internal sealed class BlobReassembler
     {
-        private readonly MemoryStream _buffer = new MemoryStream();
+        private readonly byte[] _buffer;
 
         public BlobReassembler(int expectedBytes, long nowMs)
         {
+            if (expectedBytes <= 0) throw new ProtocolException("Invalid blob size.");
+            _buffer = new byte[expectedBytes];
             ExpectedBytes = expectedBytes;
             LastChunkAtMs = nowMs;
         }
 
         public int ExpectedBytes { get; }
-        public int ReceivedBytes { get { return (int)_buffer.Length; } }
+        public int ReceivedBytes { get; private set; }
         public int ChunkCount { get; private set; }
 
         /// <summary>When most recent chunk arrived - lets owner expire stalled transfers.</summary>
@@ -53,11 +55,12 @@ namespace CS2MultiplayerMod.Core.Session
             if (ChunkCount > MaxChunks)
                 throw new ProtocolException("Blob exceeded its maximum of " + MaxChunks + " chunks.");
 
-            if (length > 0) _buffer.Write(data, 0, length);
-            if (ReceivedBytes > ExpectedBytes)
+            if (length > ExpectedBytes - ReceivedBytes)
                 throw new ProtocolException("Blob received " + ReceivedBytes +
                                             " bytes, more than the announced " + ExpectedBytes + ".");
 
+            if (length > 0) Buffer.BlockCopy(data, 0, _buffer, ReceivedBytes, length);
+            ReceivedBytes += length;
             LastChunkAtMs = nowMs;
         }
 
@@ -69,7 +72,7 @@ namespace CS2MultiplayerMod.Core.Session
         {
             if (ReceivedBytes != ExpectedBytes)
                 throw new ProtocolException("Blob ended at " + ReceivedBytes + "/" + ExpectedBytes + " bytes.");
-            return _buffer.ToArray();
+            return _buffer;
         }
     }
 }

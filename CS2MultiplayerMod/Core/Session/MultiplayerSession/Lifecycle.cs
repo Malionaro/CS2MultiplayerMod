@@ -283,8 +283,11 @@ namespace CS2MultiplayerMod.Core.Session
 
             _peers.Clear();
             _administrativeRemovals.Clear();
+            _puntedConnections.Clear();
             _hostBannedAddresses.Clear();
             _blobs.Clear();
+            ClearOutgoingBlobs();
+            _completedBlobTransfers.Clear();
             _blobTransferIds.Clear();
             ClearBlobProgress();
             _outgoingBlobActive = false;

@@ -244,25 +244,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void Prioritize(Entity entity, PropertyRentIdentity identity)
         {
-            if (_priority.ContainsKey(identity))
-            {
-                _priority[identity] = entity;
-                return;
-            }
-            while (_priority.Count >= MaxPriorityProperties && _priorityOrder.Count > 0)
-            {
-                PropertyRentIdentity oldest;
-                if (!_priorityOrder.TryDequeue(out oldest)) break;
-                if (_priority.Remove(oldest)) _priorityDrops++;
-            }
-            if (_priority.Count >= MaxPriorityProperties)
-            {
-                _priorityDrops++;
-                return;
-            }
-            _priority[identity] = entity;
-            _priorityOrder.Enqueue(identity);
-            _priorityChanges++;
+            int dropped;
+            if (_propertyState.Prioritize(identity, entity, MaxPriorityProperties, out dropped)) _priorityChanges++;
+            _priorityDrops += dropped;
         }
 
         private void PruneHostObservedBucket(int bucket)

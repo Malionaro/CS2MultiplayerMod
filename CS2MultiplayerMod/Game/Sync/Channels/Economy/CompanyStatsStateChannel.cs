@@ -15,7 +15,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
     /// the properties it names, so a dropped page is repaired by the next sweep and malformed data
     /// is dropped locally rather than escalated into a full-world resync.
     /// </summary>
-    internal sealed class CompanyStatsStateChannel : IStateChannel, IPumpedStateChannel
+    internal sealed class CompanyStatsStateChannel : IStateChannel, IPropertyStateChannel
     {
         public const byte Id = 22;
         private readonly CompanyStatsSyncSystem _runtime;

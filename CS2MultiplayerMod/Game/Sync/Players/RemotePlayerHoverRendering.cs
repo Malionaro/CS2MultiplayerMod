@@ -36,6 +36,9 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 PlayerHoverShape next = target[i], previous = trail.Hover[i];
                 if (i < trail.HoverCount && previous.Placement && next.Placement &&
                     previous.Kind == next.Kind && previous.Key == next.Key &&
+                    // A new road segment must not morph out of the previously committed course.
+                    (next.Kind != PlayerHoverKind.Curve ||
+                     math.distancesq(Vector(previous.A), Vector(next.A)) < 0.0001f) &&
                     math.distancesq(Vector(previous.A), Vector(next.A)) < SnapDistance * SnapDistance)
                 {
                     next.A = Blend(previous.A, next.A, blend);
@@ -50,12 +53,20 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             trail.HoverCount = count;
         }
 
-        private bool HoverVisible(Trail trail, bool culling)
+        private bool HoverVisible(Trail trail, bool culling, bool outlined)
         {
             for (int i = 0; i < trail.HoverCount; i++)
-                if (!culling || ShapeVisible(trail.Hover[i])) return true;
+                if (Drawn(trail.Hover[i], outlined) && (!culling || ShapeVisible(trail.Hover[i])))
+                    return true;
             return false;
         }
+
+        /// <summary>
+        /// Existing buildings use only native mesh highlights. Unmatched network targets can
+        /// still use a course outline; empty-ground circles and generic building cages are hidden.
+        /// </summary>
+        private static bool Drawn(PlayerHoverShape shape, bool outlined) =>
+            shape.Placement || (!outlined && shape.Kind == PlayerHoverKind.Curve);
 
         /// <summary>How thick a shape at <paramref name="point"/> has to be drawn to read on screen.</summary>
         private float HoverWidth(float3 point) => math.clamp(
@@ -74,17 +85,30 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             if (shape.Kind == PlayerHoverKind.Circle) return SphereVisible(a, shape.Width * 0.5f + HoverLineWidth);
             float3 min = math.min(math.min(a, Vector(shape.B)), math.min(Vector(shape.C), Vector(shape.D)));
             float3 max = math.max(math.max(a, Vector(shape.B)), math.max(Vector(shape.C), Vector(shape.D)));
+            if (shape.Kind == PlayerHoverKind.Curve)
+            {
+                // Include the surface projection in culling, even when the course is deep below it.
+                var curve = new Bezier4x3(a, Vector(shape.B), Vector(shape.C), Vector(shape.D));
+                for (int step = 0; step <= CurveSteps; step++)
+                {
+                    float3 surface = SurfacePoint(MathUtils.Position(curve, (float)step / CurveSteps));
+                    min = math.min(min, surface);
+                    max = math.max(max, surface);
+                }
+            }
             max.y += shape.Height;
             return SphereVisible((min + max) * 0.5f, math.length(max - min) * 0.5f + shape.Width * 0.5f + HoverLineWidth);
         }
 
-        private void DrawHover(OverlayRenderSystem.Buffer buffer, Trail trail, Color color, bool culling)
+        private void DrawHover(OverlayRenderSystem.Buffer buffer, Trail trail, Color color, bool culling,
+            bool outlined)
         {
             using (Diagnostics.SyncProfiler.Measure("PartnerHover.Draw"))
             {
                 for (int i = 0; i < trail.HoverCount; i++)
                 {
                     PlayerHoverShape shape = trail.Hover[i];
+                    if (!Drawn(shape, outlined)) continue;
                     if (culling && !ShapeVisible(shape)) continue;
                     float3 a = Vector(shape.A), b = Vector(shape.B), c = Vector(shape.C), d = Vector(shape.D);
                     float line = HoverWidth(a);
@@ -93,33 +117,17 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                         case PlayerHoverKind.Circle:
                             line = HoverWidth(a, math.max(1f, shape.Width));
                             buffer.DrawCircle(color, new Color(color.r, color.g, color.b, 0f), line,
-                                default, new float2(0f, 1f), a, math.max(1f, shape.Width));
+                                OverlayRenderSystem.StyleFlags.Projected,
+                                new float2(0f, 1f), a, math.max(1f, shape.Width));
                             break;
                         case PlayerHoverKind.Box:
                             line = HoverWidth(a, math.min(math.distance(a, b), math.distance(b, c)));
                             DrawQuad(buffer, color, line, a, b, c, d);
-                            if (!shape.Placement && shape.Height > 1f)
-                            {
-                                float3 up = new float3(0f, shape.Height, 0f);
-                                float3 centre = (a + b + c + d) * 0.25f;
-                                DrawQuad(buffer, color, line, a + up, b + up, c + up, d + up);
-                                DrawPost(buffer, color, line, centre, a, up);
-                                DrawPost(buffer, color, line, centre, b, up);
-                                DrawPost(buffer, color, line, centre, c, up);
-                                DrawPost(buffer, color, line, centre, d, up);
-                            }
                             break;
                         case PlayerHoverKind.Curve:
-                            // A pipe or a power line is narrower than the outline that would trace
-                            // it: one line down the middle, where two edges would merge into a blur.
-                            if (shape.Width <= line * 2f)
-                            {
-                                buffer.DrawCurve(color, new Bezier4x3(a, b, c, d),
-                                    math.max(shape.Width, line));
-                                break;
-                            }
+                            bool narrow = shape.Width <= line * 2f;
                             // Two thin edges show the road width without a large translucent fill.
-                            float3 lastLeft = default, lastRight = default;
+                            float3 lastLeft = default, lastRight = default, lastPoint = default;
                             for (int step = 0; step <= CurveSteps; step++)
                             {
                                 float t = (float)step / CurveSteps, u = 1f - t;
@@ -129,14 +137,19 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                                 float3 side = math.normalizesafe(new float3(-tangent.z, 0f, tangent.x),
                                     new float3(1f, 0f, 0f)) * (shape.Width * 0.5f);
                                 float3 left = point + side, right = point - side;
-                                if (step == 0 || step == CurveSteps)
-                                    DrawHoverLine(buffer, color, line, left, right);
+                                if (!narrow && (step == 0 || step == CurveSteps))
+                                    DrawNetworkLine(buffer, color, line, left, right);
                                 if (step != 0)
                                 {
-                                    DrawHoverLine(buffer, color, line, lastLeft, left);
-                                    DrawHoverLine(buffer, color, line, lastRight, right);
+                                    if (narrow)
+                                        DrawNetworkLine(buffer, color, math.max(shape.Width, line), lastPoint, point);
+                                    else
+                                    {
+                                        DrawNetworkLine(buffer, color, line, lastLeft, left);
+                                        DrawNetworkLine(buffer, color, line, lastRight, right);
+                                    }
                                 }
-                                lastLeft = left; lastRight = right;
+                                lastLeft = left; lastRight = right; lastPoint = point;
                             }
                             break;
                     }
@@ -144,17 +157,30 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             }
         }
 
-        /// <summary>
-        /// One upright of the outline, stood just outside the corner it belongs to: the overlay is
-        /// depth-tested, so an upright on the corner itself is swallowed by the building's own mesh
-        /// and the outline reads as two loose rectangles.
-        /// </summary>
-        private static void DrawPost(OverlayRenderSystem.Buffer buffer, Color color, float width,
-            float3 centre, float3 corner, float3 up)
+        private global::Game.Simulation.TerrainSystem _hoverTerrain;
+        private global::Game.Simulation.TerrainHeightData _hoverHeights;
+
+        private float3 SurfacePoint(float3 point)
         {
-            float3 outward = math.normalizesafe(new float3(corner.x - centre.x, 0f, corner.z - centre.z))
-                * (width * 0.75f);
-            DrawHoverLine(buffer, color, width, corner + outward, corner + outward + up);
+            point.y = math.max(point.y,
+                global::Game.Simulation.TerrainUtils.SampleHeight(ref _hoverHeights, point));
+            return point;
+        }
+
+        private void DrawNetworkLine(OverlayRenderSystem.Buffer buffer, Color color, float width,
+            float3 a, float3 b)
+        {
+            if (math.distancesq(a, b) <= 0.0001f) return;
+            float3 middle = (a + b) * 0.5f;
+            if (SurfacePoint(a).y > a.y + 0.1f || SurfacePoint(b).y > b.y + 0.1f ||
+                SurfacePoint(middle).y > middle.y + 0.1f)
+            {
+                // Native projection follows the terrain between samples, including hills above
+                // buried pipes and tunnel sections. Elevated sections keep their actual height.
+                buffer.DrawLine(color, color, 0f, OverlayRenderSystem.StyleFlags.Projected,
+                    new Line3.Segment(a, b), width, default(float2));
+            }
+            else DrawHoverLine(buffer, color, width, a, b);
         }
 
         private static void DrawQuad(OverlayRenderSystem.Buffer buffer, Color color, float width,

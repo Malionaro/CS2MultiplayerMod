@@ -37,52 +37,50 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     // rents - is in Realize.cs.
     public partial class PropertyRentSyncSystem : GameSystemBase
     {
-        private const int UpdatePartitions = 16;
+        // The paging, bounded cache, partition walk, retry and priority mechanics the three
+        // property domains share. Only the payloads and the realization policy below are local;
+        // the fields underneath are named views onto this state, not separate containers.
+        private readonly PagedPropertySyncState<PropertyRentSnapshot, CachedProperty, PendingProperty, HostObservedRent, PropertyRentEntry>
+            _propertyState = new PagedPropertySyncState<PropertyRentSnapshot, CachedProperty, PendingProperty, HostObservedRent, PropertyRentEntry>();
+        private const int UpdatePartitions = PropertySyncLimits.UpdatePartitions;
         private const int RentUpdateInterval = 262144 / (16 * UpdatePartitions);
         private const float AnchorMatchDistance = 4f;
         private const float AnchorSearchRadius = 8f;
         private const float AmbiguousDistanceEpsilon = 0.01f;
-        private const int MaxIncomingPages = 8;
-        private const int MaxPumpPages = 2;
-        private const int MaxCachedProperties = 131072;
-        private const int MaxPendingIdentities = 4096;
+        private const int MaxIncomingPages = PropertySyncLimits.MaxIncomingPages;
+        private const int MaxPumpPages = PropertySyncLimits.MaxPumpPages;
+        private const int MaxCachedProperties = PropertySyncLimits.MaxCachedProperties;
+        private const int MaxPendingIdentities = PropertySyncLimits.MaxPendingIdentities;
         private const int MaxPendingRetriesPerUpdate = 192;
-        private const long ResolveRetryMs = 5000;
+        private const long ResolveRetryMs = PropertySyncLimits.ResolveRetryMs;
         private const long ResolveTimeoutMs = 120000;
-        private const int MaxPriorityEntries = 2048;
+        private const int MaxPriorityEntries = PropertySyncLimits.MaxPriorityEntries;
         private const int PriorityEntriesPerPage = 64;
-        private const long StatsIntervalMs = 30000;
+        private const long StatsIntervalMs = PropertySyncLimits.StatsIntervalMs;
 
-        private readonly ConcurrentQueue<PropertyRentSnapshot> _incoming =
-            new ConcurrentQueue<PropertyRentSnapshot>();
-        private readonly Dictionary<Entity, CachedProperty> _cache =
-            new Dictionary<Entity, CachedProperty>();
-        private readonly List<Entity>[] _cacheBuckets = CreateBuckets();
-        private readonly HashSet<Entity>[] _cacheBucketMembers = CreateBucketSets();
-        private readonly Dictionary<PropertyRentIdentity, PendingProperty> _pending =
-            new Dictionary<PropertyRentIdentity, PendingProperty>();
-        private readonly ConcurrentQueue<PropertyRentIdentity> _pendingOrder =
-            new ConcurrentQueue<PropertyRentIdentity>();
+        private ConcurrentQueue<PropertyRentSnapshot> _incoming => _propertyState.Incoming;
+        private Dictionary<Entity, CachedProperty> _cache => _propertyState.Cache;
+        private List<Entity>[] _cacheBuckets => _propertyState.CachedPartitions.Buckets;
+        private HashSet<Entity>[] _cacheBucketMembers => _propertyState.CachedPartitions.Members;
+        private Dictionary<PropertyRentIdentity, PendingProperty> _pending => _propertyState.Pending;
+        private ConcurrentQueue<PropertyRentIdentity> _pendingOrder => _propertyState.PendingOrder;
         private readonly List<Entity> _cacheScratch = new List<Entity>();
 
         // Host-side change priority. The rolling baseline is always sent; these entries merely
         // shorten the time from a newly changed rent to the next page that carries it.
-        private readonly Dictionary<Entity, HostObservedRent> _hostObserved =
-            new Dictionary<Entity, HostObservedRent>();
-        private readonly List<Entity>[] _hostObservedBuckets = CreateBuckets();
-        private readonly bool[] _hostBucketInitialized = new bool[UpdatePartitions];
-        private readonly int[] _hostBucketCursor = new int[UpdatePartitions];
+        private Dictionary<Entity, HostObservedRent> _hostObserved => _propertyState.HostObserved;
+        private List<Entity>[] _hostObservedBuckets => _propertyState.HostPartitions.Buckets;
+        private bool[] _hostBucketInitialized => _propertyState.HostPartitions.Initialized;
+        private int[] _hostBucketCursor => _propertyState.HostPartitions.Cursor;
 
         /// <summary>
         /// Properties the rolling rent observer examines per update. See the same ceiling in
         /// <see cref="ResidentialOccupancySyncSystem"/>: the observer only shortens latency, and a
         /// city large enough to hit this simply takes longer to come all the way round.
         /// </summary>
-        private const int MaxPropertiesObservedPerUpdate = 256;
-        private readonly Dictionary<PropertyRentIdentity, PropertyRentEntry> _priority =
-            new Dictionary<PropertyRentIdentity, PropertyRentEntry>();
-        private readonly ConcurrentQueue<PropertyRentIdentity> _priorityOrder =
-            new ConcurrentQueue<PropertyRentIdentity>();
+        private const int MaxPropertiesObservedPerUpdate = PropertySyncLimits.MaxPropertiesObservedPerUpdate;
+        private Dictionary<PropertyRentIdentity, PropertyRentEntry> _priority => _propertyState.Priority;
+        private ConcurrentQueue<PropertyRentIdentity> _priorityOrder => _propertyState.PriorityOrder;
 
         private EntityQuery _properties;
         private EntityQuery _prefabs;
@@ -102,7 +100,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private long _lastSeededWorldInstallGeneration;
         private bool _clientBaselineWarned;
         private bool _syncWasReady;
-        private long _nextPendingPumpMs;
+        private long _nextPendingPumpMs
+        {
+            get => _propertyState.NextPendingPumpMs;
+            set => _propertyState.NextPendingPumpMs = value;
+        }
 
         private long _lastStatsMs;
         private long _sentBytes;
@@ -133,13 +135,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             public uint LastSeenSweep;
         }
 
-        private sealed class PendingProperty
-        {
-            public PropertyRentEntry Entry;
-            public uint SweepId;
-            public long ExpiresMs;
-            public long NextAttemptMs;
-        }
+        private sealed class PendingProperty : PendingPropertyState<PropertyRentEntry>
+        { }
+
 
         private sealed class HostObservedRent
         {
@@ -147,19 +145,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             public int Bucket;
         }
 
-        private static List<Entity>[] CreateBuckets()
-        {
-            var result = new List<Entity>[UpdatePartitions];
-            for (int i = 0; i < result.Length; i++) result[i] = new List<Entity>();
-            return result;
-        }
-
-        private static HashSet<Entity>[] CreateBucketSets()
-        {
-            var result = new HashSet<Entity>[UpdatePartitions];
-            for (int i = 0; i < result.Length; i++) result[i] = new HashSet<Entity>();
-            return result;
-        }
 
         public override int GetUpdateInterval(SystemUpdatePhase phase) =>
             phase == SystemUpdatePhase.GameSimulation ? RentUpdateInterval : 1;
@@ -252,20 +237,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             bool retryDue = _pending.Count > 0 && now >= _nextPendingPumpMs;
             if (_incoming.IsEmpty && !retryDue) return;
 
-            ObjectSearch.Batch search = _objectSearch.BeginBatch();
-            var candidates = new NativeList<Entity>(16, Allocator.Temp);
-            try
+            using (var scope = new PropertySearchScope(_objectSearch))
             {
+                ObjectSearch.Batch search = scope.Batch;
+                NativeList<Entity> candidates = scope.Candidates;
                 DrainIncoming(now, search, candidates, MaxPumpPages);
                 if (retryDue)
                 {
                     RetryPending(now, search, candidates);
                     _nextPendingPumpMs = now + ResolveRetryMs;
                 }
-            }
-            finally
-            {
-                candidates.Dispose();
             }
         }
     }

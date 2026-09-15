@@ -57,6 +57,10 @@ namespace CS2MultiplayerMod.Core.Protocol
             _entries[type] = new Entry { Factory = factory, MaxPayloadBytes = maxPayloadBytes };
         }
 
+        public bool AcceptsFrame(byte type, int length) =>
+            length > 0 && _entries.TryGetValue((MessageType)type, out Entry entry) &&
+            length <= entry.MaxPayloadBytes;
+
         public byte[] Encode(INetMessage message)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));

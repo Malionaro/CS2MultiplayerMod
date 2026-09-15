@@ -19,6 +19,8 @@ namespace CS2MultiplayerMod.Core.Protocol
         public NetworkReader(byte[] buffer, int offset, int count)
         {
             _buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
+            if (offset < 0 || offset > buffer.Length || count < 0 || count > buffer.Length - offset)
+                throw new ProtocolException("Invalid reader buffer range.");
             _position = offset;
             _end = offset + count;
         }

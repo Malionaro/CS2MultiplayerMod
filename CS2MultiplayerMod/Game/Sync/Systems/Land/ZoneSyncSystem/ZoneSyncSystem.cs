@@ -9,7 +9,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using CS2MultiplayerMod.Core.Diagnostics;
-using CS2MultiplayerMod.Core.Sync;
+using CS2MultiplayerMod.Core.Sync; // Shared scheduling and queues.
 using CS2MultiplayerMod.Core.Protocol.Messages;
 using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Diagnostics;

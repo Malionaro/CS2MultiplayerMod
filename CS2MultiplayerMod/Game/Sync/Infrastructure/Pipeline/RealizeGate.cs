@@ -33,7 +33,10 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
     /// </summary>
     internal sealed class HeldTime
     {
+        private readonly CS2MultiplayerMod.Core.Sync.ActiveRetryClock _clock =
+            new CS2MultiplayerMod.Core.Sync.ActiveRetryClock();
         private long _lastMs;
+        private bool _initialized;
 
         /// <summary>
         /// Time to add to pending deadlines this frame: the gap since the previous call when
@@ -42,11 +45,19 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         /// </summary>
         public long Observe(long nowMs, bool held)
         {
-            long delta = _lastMs == 0 ? 0 : nowMs - _lastMs;
+            long before = _clock.NowMs;
+            _clock.Observe(nowMs, held);
+            long delta = _initialized && nowMs > _lastMs ? nowMs - _lastMs : 0;
             _lastMs = nowMs;
-            return held && delta > 0 ? delta : 0;
+            _initialized = true;
+            return delta - (_clock.NowMs - before);
         }
 
-        public void Reset() => _lastMs = 0;
+        public void Reset()
+        {
+            _clock.Reset();
+            _lastMs = 0;
+            _initialized = false;
+        }
     }
 }

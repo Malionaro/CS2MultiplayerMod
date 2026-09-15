@@ -18,6 +18,7 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
         public int TotalBytes;
         public bool Last;
         public byte[] Data;
+        private int _dataCount = -1;
 
         public BlobChunkMessage() { }
 
@@ -35,6 +36,13 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             Data = data ?? System.Array.Empty<byte>();
         }
 
+        public BlobChunkMessage(string channel, long transferId, int totalBytes, bool last,
+            byte[] data, int count) : this(channel, transferId, totalBytes, last, data)
+        {
+            if (count < 0 || count > Data.Length) throw new System.ArgumentOutOfRangeException(nameof(count));
+            _dataCount = count;
+        }
+
         public MessageType Type => MessageType.BlobChunk;
 
         public void Write(NetworkWriter writer)
@@ -43,9 +51,9 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             writer.WriteLong(TransferId);
             writer.WriteInt(TotalBytes);
             writer.WriteBool(Last);
-            writer.WriteInt(Data != null ? Data.Length : 0);
-            if (Data != null && Data.Length > 0)
-                writer.WriteBytes(Data, 0, Data.Length);
+            int count = _dataCount >= 0 ? _dataCount : (Data != null ? Data.Length : 0);
+            writer.WriteInt(count);
+            if (count > 0) writer.WriteBytes(Data, 0, count);
         }
 
         public void Read(NetworkReader reader)
@@ -54,7 +62,10 @@ namespace CS2MultiplayerMod.Core.Protocol.Messages
             TransferId = reader.ReadLong();
             TotalBytes = reader.ReadInt();
             Last = reader.ReadBool();
+            _dataCount = -1;
             int length = reader.ReadInt();
+            if (length < 0 || length > ProtocolConstants.BlobChunkBytes)
+                throw new ProtocolException("Invalid blob chunk length.");
             Data = length > 0 ? reader.ReadBytes(length) : System.Array.Empty<byte>();
         }
     }

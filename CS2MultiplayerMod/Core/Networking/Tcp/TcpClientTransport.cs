@@ -22,6 +22,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
         public const int MaxQueuedEvents = 10000;
 
         private readonly IModLogger _log;
+        private readonly InboundByteBudget _inboundBudget = new InboundByteBudget();
         private readonly ConcurrentQueue<TransportEvent> _events = new ConcurrentQueue<TransportEvent>();
 
         private FramedConnection _connection;
@@ -129,6 +130,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
 
             var connection = new FramedConnection(ConnectionId.Server, client, null, useTls)
             {
+                InboundBudget = _inboundBudget,
                 // Connected is announced only after the TLS handshake succeeds, so the
                 // session never sends the handshake into a half-established stream.
                 OnReady = cid =>
@@ -171,6 +173,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
             if (Interlocked.Increment(ref _queuedEvents) > MaxQueuedEvents)
             {
                 Interlocked.Decrement(ref _queuedEvents);
+                if (evt.Type == TransportEventType.Data) _inboundBudget.Release(evt.Connection, evt.Payload.Length);
                 _log.Warn(LogTopic.Transport,
                     "Transport event queue full; disconnecting from host.");
                 var c = _connection;
@@ -247,6 +250,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
             {
                 Interlocked.Decrement(ref _queuedEvents);
                 sink.Add(evt);
+                if (evt.Type == TransportEventType.Data) _inboundBudget.Release(evt.Connection, evt.Payload.Length);
                 count++;
             }
             return count;

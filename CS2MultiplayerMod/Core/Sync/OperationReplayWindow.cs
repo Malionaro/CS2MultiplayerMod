@@ -10,6 +10,10 @@ namespace CS2MultiplayerMod.Core.Sync
     public sealed class OperationReplayWindow<TKey>
     {
         private readonly Dictionary<TKey, long> _completed;
+        private readonly List<TKey> _expired = new List<TKey>();
+        // A conservative lower bound: renewing/removing the earliest key can leave
+        // this earlier than necessary, but can never delay expiry of another key.
+        private long _nextExpiry = long.MaxValue;
 
         public OperationReplayWindow() : this(null) { }
 
@@ -34,17 +38,27 @@ namespace CS2MultiplayerMod.Core.Sync
             if (duration <= 0) throw new ArgumentOutOfRangeException(nameof(duration));
             long expires = now > long.MaxValue - duration ? long.MaxValue : now + duration;
             _completed[key] = expires;
+            if (expires < _nextExpiry) _nextExpiry = expires;
         }
 
         public void Prune(long now)
         {
-            if (_completed.Count == 0) return;
-            var expired = new List<TKey>();
+            if (_completed.Count == 0 || now < _nextExpiry) return;
+            _nextExpiry = long.MaxValue;
             foreach (KeyValuePair<TKey, long> pair in _completed)
-                if (pair.Value <= now) expired.Add(pair.Key);
-            for (int i = 0; i < expired.Count; i++) _completed.Remove(expired[i]);
+            {
+                if (pair.Value <= now) _expired.Add(pair.Key);
+                else if (pair.Value < _nextExpiry) _nextExpiry = pair.Value;
+            }
+            for (int i = 0; i < _expired.Count; i++) _completed.Remove(_expired[i]);
+            _expired.Clear();
         }
 
-        public void Clear() => _completed.Clear();
+        public void Clear()
+        {
+            _completed.Clear();
+            _expired.Clear();
+            _nextExpiry = long.MaxValue;
+        }
     }
 }

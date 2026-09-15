@@ -83,38 +83,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void RetryPending(long now, ObjectSearch.Batch search, NativeList<Entity> candidates)
         {
-            if (_pending.Count == 0) return;
-            int examined = 0;
-            PropertyRentIdentity identity;
-            while (examined++ < MaxPendingRetriesPerPump && _pendingOrder.TryDequeue(out identity))
-            {
-                PendingProperty pending;
-                if (!_pending.TryGetValue(identity, out pending)) continue;
-                if (pending.ExpiresMs <= now)
+            PropertyRetryPump.Pump(_pending, _pendingOrder, now,
+                MaxPendingRetriesPerPump,
+                value => value.ExpiresMs, value => value.NextAttemptMs,
+                (value, retry) => value.NextAttemptMs = retry,
+                value =>
                 {
-                    _pending.Remove(identity);
-                    _expired++;
-                    continue;
-                }
-                if (pending.NextAttemptMs > now)
-                {
-                    _pendingOrder.Enqueue(identity);
-                    continue;
-                }
-                bool ambiguous;
-                Entity property = ResolveProperty(pending.Property, search, candidates, out ambiguous);
-                if (property != Entity.Null &&
-                    Cache(property, pending.Property, pending.SweepId))
-                {
-                    _pending.Remove(identity);
+                    bool ambiguous;
+                    Entity property = ResolveProperty(value.Property, search, candidates, out ambiguous);
+                    if (property == Entity.Null) return false;
+                    if (!Cache(property, value.Property, value.SweepId)) return false;
                     _resolved++;
-                }
-                else
-                {
-                    pending.NextAttemptMs = now + ResolveRetryMs;
-                    _pendingOrder.Enqueue(identity);
-                }
-            }
+                    return true;
+                }, () => _expired++);
         }
 
         /// <summary>
@@ -142,57 +123,15 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             Entity prefab;
             _prefabIndex.TryResolve(wanted.PrefabName,
-                candidate => EntityManager.HasComponent<BuildingPropertyData>(candidate),
-                out prefab);
-
-            float3 anchor = new float3(wanted.AnchorX, wanted.AnchorY, wanted.AnchorZ);
-            search.CollectNear(anchor, AnchorSearchRadius, candidates);
-
-            Entity best = Entity.Null;
-            float bestDistance = 0f;
-            bool bestExact = false, bestAmbiguous = false;
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                Entity candidate = candidates[i];
-                if (!IsLiveProperty(candidate)) continue;
-                float distance = math.distancesq(
-                    EntityManager.GetComponentData<global::Game.Objects.Transform>(candidate)
-                        .m_Position.xz, anchor.xz);
-                if (distance > AnchorMatchDistance * AnchorMatchDistance) continue;
-                if (!CanClaimProperty(candidate, wanted.Identity)) continue;
-                bool exact = prefab != Entity.Null &&
-                             EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab == prefab;
-                Consider(candidate, distance, exact, ref best, ref bestDistance,
-                    ref bestExact, ref bestAmbiguous);
-            }
-
-            ambiguous = bestAmbiguous;
-            return best != Entity.Null && !bestAmbiguous ? best : Entity.Null;
-        }
-
-        private static void Consider(Entity candidate, float distance, bool exact,
-            ref Entity best, ref float bestDistance, ref bool bestExact, ref bool ambiguous)
-        {
-            if (best == Entity.Null || distance < bestDistance - AmbiguousDistanceEpsilon)
-            {
-                best = candidate;
-                bestDistance = distance;
-                bestExact = exact;
-                ambiguous = false;
-                return;
-            }
-            if (math.abs(distance - bestDistance) > AmbiguousDistanceEpsilon || candidate == best)
-                return;
-            if (exact && !bestExact)
-            {
-                best = candidate;
-                bestDistance = distance;
-                bestExact = true;
-                ambiguous = false;
-                return;
-            }
-            if (!exact && bestExact) return;
-            ambiguous = true;
+                candidate => EntityManager.Exists(candidate) &&
+                    EntityManager.HasComponent<BuildingPropertyData>(candidate), out prefab);
+            PropertyResolution result = PropertyEntityResolver.Resolve(EntityManager, search,
+                candidates, new float3(wanted.AnchorX, wanted.AnchorY, wanted.AnchorZ),
+                AnchorSearchRadius, AnchorMatchDistance, AmbiguousDistanceEpsilon, prefab,
+                IsLiveProperty, PropertyPrefabPreference.BreakDistanceTie,
+                candidate => CanClaimProperty(candidate, wanted.Identity));
+            ambiguous = result.Ambiguous;
+            return result.Entity;
         }
 
         private bool CanClaimProperty(Entity property, PropertyRentIdentity wanted)
@@ -356,7 +295,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// to one rolling partition, which is what repairs drift the host never reported (a local
         /// death, a local birth the host did not have).
         /// </summary>
-        private void ApplyPending(int bucket)
+        private void ApplyPending()
         {
             _budget.Reset();
             _appliedThisUpdate.Clear();
@@ -384,7 +323,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 }
                 if (processed > 0) _dirty.RemoveRange(0, processed);
 
-                if (!_budget.Exhausted) ApplyBucket(bucket);
+                int repairBucket;
+                if (!_budget.Exhausted && _repairScanCadence.TryTakePartition(
+                        _simulationSystem.selectedSpeed, UpdatePartitions, out repairBucket))
+                    ApplyBucket(repairBucket);
                 _appliedThisUpdate.Clear();
             }
             using (Diagnostics.SyncProfiler.Measure("Occupancy.Unreachable", Diagnostics.SyncZone.Residential))

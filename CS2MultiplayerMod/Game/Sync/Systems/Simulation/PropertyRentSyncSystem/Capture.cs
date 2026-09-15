@@ -114,17 +114,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>Called by the state channel; bounded and deliberately never requests resync.</summary>
         internal void Enqueue(PropertyRentSnapshot snapshot)
         {
-            if (snapshot == null) return;
-            lock (_incoming)
-            {
-                _incoming.Enqueue(snapshot);
-                while (_incoming.Count > MaxIncomingPages)
-                {
-                    PropertyRentSnapshot dropped;
-                    if (!_incoming.TryDequeue(out dropped)) break;
-                    _droppedPages++;
-                }
-            }
+            if (snapshot != null) _droppedPages += _propertyState.Enqueue(snapshot);
         }
 
         internal void DrainForWorldChange()
@@ -360,25 +350,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void Prioritize(PropertyRentEntry entry)
         {
             PropertyRentIdentity identity = entry.Identity;
-            if (_priority.ContainsKey(identity))
-            {
-                _priority[identity] = entry;
-                return;
-            }
-            while (_priority.Count >= MaxPriorityEntries && _priorityOrder.Count > 0)
-            {
-                PropertyRentIdentity oldest;
-                if (!_priorityOrder.TryDequeue(out oldest)) break;
-                if (_priority.Remove(oldest)) _priorityDrops++;
-            }
-            if (_priority.Count >= MaxPriorityEntries)
-            {
-                _priorityDrops++;
-                return;
-            }
-            _priority[identity] = entry;
-            _priorityOrder.Enqueue(identity);
-            _priorityChanges++;
+            int dropped;
+            if (_propertyState.Prioritize(identity, entry, MaxPriorityEntries, out dropped)) _priorityChanges++;
+            _priorityDrops += dropped;
         }
 
         private void PruneHostObservedBucket(int bucket)

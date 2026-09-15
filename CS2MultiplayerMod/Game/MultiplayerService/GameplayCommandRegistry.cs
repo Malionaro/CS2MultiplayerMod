@@ -32,6 +32,9 @@ namespace CS2MultiplayerMod.Game
             session.AllowCommands(AllowedCommandIds);
         }
 
+        /// <summary>A copy for callers that iterate the allow-list without being able to edit it.</summary>
+        internal static ushort[] CopyAllowedIds() => (ushort[])AllowedCommandIds.Clone();
+
         internal static string Name(ushort id)
         {
             switch (id)

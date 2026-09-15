@@ -46,6 +46,10 @@ namespace CS2MultiplayerMod.Core.Session
         private readonly HashSet<ushort> _allowedCommandIds = new HashSet<ushort>();
         private readonly HashSet<int> _administrativeRemovals = new HashSet<int>();
         private readonly HashSet<string> _hostBannedAddresses = new HashSet<string>();
+        // Connections already told to go. The transport only removes a peer when its
+        // Disconnected event arrives, so without this every frame already queued behind a
+        // flood is dispatched - and logged - against a connection that is on its way out.
+        private readonly HashSet<int> _puntedConnections = new HashSet<int>();
         private readonly FailedAuthTracker _failedAuth = new FailedAuthTracker();
 
         private ITransport _transport;
@@ -215,6 +219,7 @@ namespace CS2MultiplayerMod.Core.Session
                 PumpHeartbeats(nowUnixMs);
                 ReapTimedOutPeers(nowUnixMs);
                 SweepStalledBlobs(nowUnixMs);
+                PumpOutgoingBlobs();
                 UpdateOutgoingBlobProgress();
 
                 // The ban book only grows on failed auths, so a sparse sweep is plenty.
@@ -232,11 +237,15 @@ namespace CS2MultiplayerMod.Core.Session
             if (!_outgoingBlobActive || _transport == null) return;
 
             long pending = _transport.PendingSendBytes;
-            long sent = _outgoingBlobTotal - pending;
+            long remaining = 0;
+            foreach (OutgoingBlob blob in _outgoingBlobs) remaining += blob.Data.Length - blob.Offset;
+            long sent = _outgoingBlobTotal - remaining - pending;
             _outgoingBlobSent = sent < 0 ? 0 : (sent > _outgoingBlobTotal ? _outgoingBlobTotal : sent);
 
             // Drained to a trickle (only small keep-alives/commands left): the world is sent.
-            if (pending < 65536)
+            // Gameplay traffic keeps flowing, so waiting for an exactly empty queue would leave
+            // the transfer reported as active for the rest of the session.
+            if (_outgoingBlobs.Count == 0 && pending < 65536)
             {
                 _outgoingBlobSent = _outgoingBlobTotal;
                 _outgoingBlobActive = false;

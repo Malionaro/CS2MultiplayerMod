@@ -240,25 +240,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void Prioritize(Entity property, PropertyRentIdentity identity)
         {
-            if (_priority.ContainsKey(identity))
-            {
-                _priority[identity] = property;
-                return;
-            }
-            while (_priority.Count >= MaxPriorityEntries && _priorityOrder.Count > 0)
-            {
-                PropertyRentIdentity oldest;
-                if (!_priorityOrder.TryDequeue(out oldest)) break;
-                if (_priority.Remove(oldest)) _priorityDrops++;
-            }
-            if (_priority.Count >= MaxPriorityEntries)
-            {
-                _priorityDrops++;
-                return;
-            }
-            _priority[identity] = property;
-            _priorityOrder.Enqueue(identity);
-            _priorityChanges++;
+            int dropped;
+            if (_propertyState.Prioritize(identity, property, MaxPriorityEntries, out dropped)) _priorityChanges++;
+            _priorityDrops += dropped;
         }
 
         /// <summary>

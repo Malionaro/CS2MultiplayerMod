@@ -161,10 +161,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             bool retryDue = _pending.Count > 0 && now >= _nextPendingPumpMs;
             if (_incoming.IsEmpty && !retryDue) return;
 
-            ObjectSearch.Batch search = _objectSearch.BeginBatch();
-            var candidates = new NativeList<Entity>(16, Allocator.Temp);
-            try
+            using (var scope = new PropertySearchScope(_objectSearch))
             {
+                ObjectSearch.Batch search = scope.Batch;
+                NativeList<Entity> candidates = scope.Candidates;
                 DrainIncoming(now, search, candidates, MaxPumpPages);
                 if (retryDue)
                 {
@@ -172,20 +172,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _nextPendingPumpMs = now + ResolveRetryMs;
                 }
             }
-            finally
-            {
-                candidates.Dispose();
-            }
         }
 
         private void DrainIncoming(long now, ObjectSearch.Batch search,
             NativeList<Entity> candidates, int maxPages)
         {
-            ResidentialOccupancySnapshot snapshot;
-            int pages = 0;
-            while (pages < maxPages && _incoming.TryDequeue(out snapshot))
+            _propertyState.PumpPages(maxPages, snapshot =>
             {
-                pages++;
                 _receivedPages++;
                 bool trackedSweep = NotePageContinuity(snapshot);
                 for (int i = 0; i < snapshot.Departures.Count; i++)
@@ -200,7 +193,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     snapshot.PageIndex + 1 == _clientNextPage)
                     PruneCacheAfterCompleteSweep(snapshot.SweepId,
                         snapshot.RevisionWatermark);
-            }
+            });
         }
 
         private bool NotePageContinuity(ResidentialOccupancySnapshot snapshot)

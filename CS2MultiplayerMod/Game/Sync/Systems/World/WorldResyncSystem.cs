@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Threading;
 using CS2MultiplayerMod.Core.Diagnostics;
 using CS2MultiplayerMod.Core.Networking;
 using CS2MultiplayerMod.Core.Protocol.Messages;
@@ -61,7 +62,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private NetSyncSystem _netSync;
         private Observer _observer;
-        private Task<byte[]> _saveTask;
+        private Task<BlobSource> _saveTask;
+        private CancellationTokenSource _saveCancellation;
         private RecoveryState _state;
         private bool _recoveryRequested;
         private bool _rerunRequested;
@@ -70,6 +72,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private long _epoch;
         private long _deadlineMs;
         private long _saveStartMs;
+        private long _lastTransferProgress;
         private float _resumeSpeed;
         private int _cleanFrames;
 
@@ -84,6 +87,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         protected override void OnDestroy()
         {
+            CancelSave();
             SyncObserverBinding.Unbind(_observer);
             MultiplayerService service = Mod.Service;
             if (_state != RecoveryState.Idle && service != null &&
@@ -151,7 +155,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             while (_leaves.TryDequeue(out left)) { }
 
             _state = RecoveryState.Idle;
-            _saveTask = null;
+            CancelSave();
             _participants.Clear();
             _quiesced.Clear();
             _loaded.Clear();
@@ -213,6 +217,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void StartEpoch(MultiplayerService service, MultiplayerSession session, long now)
         {
+            if (_saveTask != null)
+            {
+                if (!_saveTask.IsCompleted) return;
+                ObserveFinishedSave();
+            }
             _recoveryRequested = false;
             _participants.Clear();
             foreach (Peer peer in session.Peers)
@@ -296,7 +305,20 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             try
             {
-                _saveTask = service.CreateWorldSnapshot(World);
+                if (_saveTask != null && !_saveTask.IsCompleted) return;
+                ObserveFinishedSave();
+                _saveCancellation = new CancellationTokenSource();
+                _saveTask = service.CreateWorldSnapshot(World, _epoch, _saveCancellation.Token);
+                long savingEpoch = _epoch;
+                CancellationToken saveToken = _saveCancellation.Token;
+                _saveTask.ContinueWith(task =>
+                {
+                    if (task.IsFaulted)
+                        SyncLog.Error(LogTopic.Resync, "World snapshot epoch " + savingEpoch +
+                            " failed: " + task.Exception.GetBaseException().Message);
+                    else if (task.Status == TaskStatus.RanToCompletion && saveToken.IsCancellationRequested)
+                        task.Result?.Dispose();
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 _saveStartMs = now;
                 _state = RecoveryState.Saving;
                 service.SetHostWorldSyncUiStage(HostWorldSyncUiStage.Saving);
@@ -321,8 +343,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 return;
             }
 
-            byte[] snapshot = _saveTask.Result;
+            BlobSource snapshot = _saveTask.Result;
             _saveTask = null;
+            ObserveFinishedSave();
             if (snapshot == null || snapshot.Length == 0)
             {
                 AbortEpoch(service, "authoritative save produced no snapshot data");
@@ -330,8 +353,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
             string saveName = MultiplayerService.WorldSnapshotFileName;
 
-            for (int i = 0; i < _snapshotTargets.Count; i++)
-                service.StreamWorldSnapshot(_snapshotTargets[i], _epoch, snapshot, saveName);
+            try
+            {
+                for (int i = 0; i < _snapshotTargets.Count; i++)
+                    service.StreamWorldSnapshot(_snapshotTargets[i], _epoch, snapshot, saveName);
+            }
+            catch (Exception ex)
+            {
+                AbortEpoch(service, "could not stream snapshot: " + ex.Message);
+                return;
+            }
+            finally { snapshot.Dispose(); }
 
             _loaded.Clear();
             // Barrier-only participants install nothing, so they never acknowledge a load. They
@@ -339,6 +371,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             for (int i = 0; i < _participants.Count; i++)
                 if (!_snapshotTargets.Contains(_participants[i]))
                     _loaded.Add(_participants[i].Value);
+            _lastTransferProgress = 0;
             _deadlineMs = now + LoadTimeoutMs;
             _state = RecoveryState.WaitingForLoaded;
             service.SetHostWorldSyncUiStage(HostWorldSyncUiStage.WaitingForLoaded);
@@ -351,6 +384,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void PumpLoaded(MultiplayerService service, MultiplayerSession session, long now)
         {
+            if (session.OutgoingBlobSent > _lastTransferProgress)
+            {
+                _lastTransferProgress = session.OutgoingBlobSent;
+                _deadlineMs = now + LoadTimeoutMs;
+            }
             if (AllParticipantsIn(_loaded))
             {
                 CompleteEpoch(service, session, now);
@@ -405,10 +443,27 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             ResetEpoch();
         }
 
+        private void CancelSave()
+        {
+            _saveCancellation?.Cancel();
+            if (_saveTask == null || _saveTask.IsCompleted) ObserveFinishedSave();
+        }
+
+        private void ObserveFinishedSave()
+        {
+            if (_saveTask != null && !_saveTask.IsCompleted) return;
+            if (_saveTask != null && _saveTask.IsFaulted) _ = _saveTask.Exception;
+            if (_saveTask != null && _saveTask.Status == TaskStatus.RanToCompletion)
+                _saveTask.Result?.Dispose();
+            _saveTask = null;
+            _saveCancellation?.Dispose();
+            _saveCancellation = null;
+        }
+
         private void ResetEpoch()
         {
             _state = RecoveryState.Idle;
-            _saveTask = null;
+            CancelSave();
             _participants.Clear();
             _quiesced.Clear();
             _loaded.Clear();

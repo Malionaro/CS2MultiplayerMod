@@ -290,6 +290,11 @@ namespace CS2MultiplayerMod
             // Renders the other players' camera positions as ground rings. Rendering phase
             // so the markers draw every frame, in every state (including paused).
             updateSystem.UpdateAt<Game.Sync.Players.RemotePlayerMarkerSystem>(SystemUpdatePhase.Rendering);
+            // Hands what a partner is pointing at to the game's own hover outline. Not Rendering:
+            // this one adds and removes a component, and ModificationEnd is where the mod's other
+            // structural work already sits - while still running with the simulation paused.
+            updateSystem.UpdateAt<Game.Sync.Players.RemotePlayerHighlightSystem>(
+                SystemUpdatePhase.ModificationEnd);
             // UIUpdate, not GameSimulation: policies can be toggled while the game is paused
             // (the policies panel works paused - the game routes the change through an event
             // entity consumed by the every-frame modification pipeline), but the GameSimulation

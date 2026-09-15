@@ -14,7 +14,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
     /// names, so a dropped page is repaired by the next sweep and malformed data is dropped
     /// locally rather than escalated into a full-world resync.
     /// </summary>
-    internal sealed class ResidentialOccupancyChannel : IStateChannel, IPumpedStateChannel
+    internal sealed class ResidentialOccupancyChannel : IStateChannel, IPropertyStateChannel
     {
         public const byte Id = 21;
         private readonly ResidentialOccupancySyncSystem _runtime;

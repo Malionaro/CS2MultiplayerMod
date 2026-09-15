@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <NoWarn>SYSLIB0014;SYSLIB0054</NoWarn>
+    <GameManagedPath>$([System.Environment]::GetEnvironmentVariable('CSII_MANAGEDPATH', 'EnvironmentVariableTarget.User'))</GameManagedPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../CS2MultiplayerMod/Core/**/*.cs" />
+    <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/PlayerHoverCapture.cs" />
+    <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/RemotePlayerHoverRendering.cs" />
+    <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/RemotePlayerHighlightSystem.cs" />
+    <Reference Include="Unity.Mathematics"><HintPath>$(GameManagedPath)/Unity.Mathematics.dll</HintPath></Reference>
+    <Reference Include="Colossal.Mathematics"><HintPath>$(GameManagedPath)/Colossal.Mathematics.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

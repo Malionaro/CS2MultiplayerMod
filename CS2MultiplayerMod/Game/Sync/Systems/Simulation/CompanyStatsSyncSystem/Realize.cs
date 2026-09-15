@@ -41,10 +41,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             bool retryDue = _pending.Count > 0 && now >= _nextPendingPumpMs;
             if (_incoming.IsEmpty && !retryDue) return;
 
-            ObjectSearch.Batch search = _objectSearch.BeginBatch();
-            var candidates = new NativeList<Entity>(16, Allocator.Temp);
-            try
+            using (var scope = new PropertySearchScope(_objectSearch))
             {
+                ObjectSearch.Batch search = scope.Batch;
+                NativeList<Entity> candidates = scope.Candidates;
                 DrainIncoming(now, search, candidates, MaxPumpPages);
                 if (retryDue)
                 {
@@ -52,20 +52,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _nextPendingPumpMs = now + ResolveRetryMs;
                 }
             }
-            finally
-            {
-                candidates.Dispose();
-            }
         }
 
         private void DrainIncoming(long now, ObjectSearch.Batch search,
             NativeList<Entity> candidates, int maxPages)
         {
-            CompanyStatsSnapshot snapshot;
-            int pages = 0;
-            while (pages < maxPages && _incoming.TryDequeue(out snapshot))
+            _propertyState.PumpPages(maxPages, snapshot =>
             {
-                pages++;
                 _receivedPages++;
                 if (_clientSweepId != snapshot.SweepId)
                 {
@@ -87,7 +80,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _clientNextPage = 0;
                     _clientSweepIntact = false;
                 }
-            }
+            });
         }
 
         private void ResolveOrPend(CompanyStatsEntry entry, uint sweepId, long now,
@@ -129,36 +122,19 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private void RetryPending(long now, ObjectSearch.Batch search, NativeList<Entity> candidates)
         {
-            if (_pending.Count == 0) return;
-            int examined = 0;
-            PropertyRentIdentity identity;
-            while (examined++ < MaxPendingRetriesPerUpdate && _pendingOrder.TryDequeue(out identity))
-            {
-                PendingEntry pending;
-                if (!_pending.TryGetValue(identity, out pending)) continue;
-                if (pending.ExpiresMs <= now)
+            PropertyRetryPump.Pump(_pending, _pendingOrder, now,
+                MaxPendingRetriesPerUpdate,
+                value => value.ExpiresMs, value => value.NextAttemptMs,
+                (value, retry) => value.NextAttemptMs = retry,
+                value =>
                 {
-                    _pending.Remove(identity);
-                    _expired++;
-                    continue;
-                }
-                if (pending.NextAttemptMs > now)
-                {
-                    _pendingOrder.Enqueue(identity);
-                    continue;
-                }
-                bool ambiguous;
-                Entity property = ResolveProperty(pending.Entry, search, candidates, out ambiguous);
-                if (property != Entity.Null)
-                {
-                    Cache(property, pending.Entry, pending.SweepId);
-                    _pending.Remove(identity);
+                    bool ambiguous;
+                    Entity property = ResolveProperty(value.Entry, search, candidates, out ambiguous);
+                    if (property == Entity.Null) return false;
+                    Cache(property, value.Entry, value.SweepId);
                     _resolved++;
-                    continue;
-                }
-                pending.NextAttemptMs = now + ResolveRetryMs;
-                _pendingOrder.Enqueue(identity);
-            }
+                    return true;
+                }, () => _expired++);
         }
 
         /// <summary>
@@ -174,46 +150,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             ambiguous = false;
             Entity prefab;
             _prefabIndex.TryResolve(entry.PrefabName,
-                candidate => EntityManager.HasComponent<BuildingPropertyData>(candidate),
-                out prefab);
-
-            var anchor = new float3(entry.AnchorX, entry.AnchorY, entry.AnchorZ);
-            search.CollectNear(anchor, AnchorSearchRadius, candidates);
-            Entity exact = Entity.Null, nearest = Entity.Null;
-            float exactDistance = 0f, nearestDistance = 0f;
-            bool exactAmbiguous = false, nearestAmbiguous = false;
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                Entity candidate = candidates[i];
-                if (!IsLiveWorkplaceProperty(candidate)) continue;
-                float distance = math.distancesq(
-                    EntityManager.GetComponentData<global::Game.Objects.Transform>(candidate)
-                        .m_Position.xz, anchor.xz);
-                if (distance > AnchorMatchDistance * AnchorMatchDistance) continue;
-                if (prefab != Entity.Null &&
-                    EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab == prefab)
-                    ConsiderCandidate(candidate, distance, ref exact, ref exactDistance,
-                        ref exactAmbiguous);
-                ConsiderCandidate(candidate, distance, ref nearest, ref nearestDistance,
-                    ref nearestAmbiguous);
-            }
-            if (exact != Entity.Null && !exactAmbiguous) return exact;
-            ambiguous = exact != Entity.Null ? exactAmbiguous : nearestAmbiguous;
-            return nearest != Entity.Null && !nearestAmbiguous ? nearest : Entity.Null;
-        }
-
-        private static void ConsiderCandidate(Entity candidate, float distance, ref Entity best,
-            ref float bestDistance, ref bool ambiguous)
-        {
-            if (best == Entity.Null || distance < bestDistance - AmbiguousDistanceEpsilon)
-            {
-                best = candidate;
-                bestDistance = distance;
-                ambiguous = false;
-                return;
-            }
-            if (math.abs(distance - bestDistance) <= AmbiguousDistanceEpsilon && candidate != best)
-                ambiguous = true;
+                candidate => EntityManager.Exists(candidate) &&
+                    EntityManager.HasComponent<BuildingPropertyData>(candidate), out prefab);
+            PropertyResolution result = PropertyEntityResolver.Resolve(EntityManager, search,
+                candidates, new float3(entry.AnchorX, entry.AnchorY, entry.AnchorZ),
+                AnchorSearchRadius, AnchorMatchDistance, AmbiguousDistanceEpsilon, prefab,
+                IsLiveWorkplaceProperty, PropertyPrefabPreference.ExactFirst);
+            ambiguous = result.Ambiguous;
+            return result.Entity;
         }
 
         private void Cache(Entity property, CompanyStatsEntry entry, uint sweepId)
@@ -489,6 +433,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < _stateRetryScratch.Count; i++)
                     RetryStateDirty(_stateRetryScratch[i]);
                 _stateRetryScratch.Clear();
+
+                // Only the fallback walk is speed-normalized; new pages and retries above
+                // retain their native boundary and drain capacity.
+                if (!_stateScanCadence.TryRun(_simulationSystem.selectedSpeed)) return;
 
                 // A small cache must not wrap and apply the same company dozens of times.
                 int walkLimit = Math.Min(MaxStateWalkedPerBoundary, _tenancyOrder.Count);
@@ -1099,6 +1047,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (created >= MaxCompaniesCreatedPerUpdate && retired >= MaxCompaniesRetiredPerUpdate)
                 return;
 
+            if (!_tenancyScanCadence.TryRun(_simulationSystem.selectedSpeed)) return;
             int walkLimit = Math.Min(MaxTenancyWalkedPerUpdate, _tenancyOrder.Count);
             int walked = 0;
             while (walked < walkLimit && _tenancyOrder.Count > 0 &&

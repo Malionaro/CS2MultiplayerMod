@@ -20,6 +20,7 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
     public sealed class ObjectSearch
     {
         private readonly global::Game.Objects.SearchSystem _search;
+        internal global::Game.Objects.SearchSystem System => _search;
 
         public ObjectSearch(global::Game.Objects.SearchSystem search)
         {
@@ -46,13 +47,16 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         /// </summary>
         public Batch BeginBatch()
         {
-            JobHandle dependencies;
-            NativeQuadTree<Entity, QuadTreeBoundsXZ> tree =
-                _search.GetStaticSearchTree(readOnly: true, out dependencies);
-            // Read on the main thread: the callers make structural changes straight afterwards,
-            // which would sync these jobs anyway.
-            dependencies.Complete();
-            return new Batch(tree);
+            using (Diagnostics.SyncProfiler.Measure("Search.Acquire"))
+            {
+                JobHandle dependencies;
+                NativeQuadTree<Entity, QuadTreeBoundsXZ> tree =
+                    _search.GetStaticSearchTree(readOnly: true, out dependencies);
+                // Read on the main thread: the callers make structural changes straight
+                // afterwards, which would sync these jobs anyway.
+                dependencies.Complete();
+                return new Batch(tree);
+            }
         }
 
         public struct Batch
@@ -73,7 +77,8 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
                     m_Bounds = new Bounds3(position - radius, position + radius),
                     m_Results = results,
                 };
-                _tree.Iterate(ref iterator);
+                using (Diagnostics.SyncProfiler.Measure("Search.CollectNear"))
+                    _tree.Iterate(ref iterator);
             }
         }
 

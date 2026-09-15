@@ -13,7 +13,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
     /// channel: every entry is absolute and a missed page is repaired by a later sweep, so malformed
     /// data or backpressure is dropped locally and never requests a full-world resync.
     /// </summary>
-    internal sealed class PropertyRentStateChannel : IStateChannel, IPumpedStateChannel
+    internal sealed class PropertyRentStateChannel : IStateChannel, IPropertyStateChannel
     {
         public const byte Id = 20;
         private readonly PropertyRentSyncSystem _runtime;

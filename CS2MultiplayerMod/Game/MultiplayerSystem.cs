@@ -18,6 +18,7 @@ namespace CS2MultiplayerMod.Game
         private const long ActiveHealthIntervalMs = 10000;
         private const long IdleHealthIntervalMs = 60000;
 
+        private global::Game.Simulation.SimulationSystem _simulation;
         private EntityQuery _tempEntities;
         private EntityQuery _definitionEntities;
         private long _lastHealthMs;
@@ -26,6 +27,7 @@ namespace CS2MultiplayerMod.Game
         protected override void OnCreate()
         {
             base.OnCreate();
+            _simulation = World.GetOrCreateSystemManaged<global::Game.Simulation.SimulationSystem>();
             SyncLog.Detail(LogTopic.Startup, nameof(MultiplayerSystem) + " created.");
 
             // Trend counters for the flight log: live preview Temps and definition
@@ -87,7 +89,8 @@ namespace CS2MultiplayerMod.Game
             // This system runs at UIUpdate, which the game drives once per rendered frame, so it
             // is the honest place to time one. Only while gameplay is live: a world load would
             // otherwise report its own multi-second frames as the session's.
-            if (service.GameplaySyncReady) FrameProbe.Sample();
+            if (service.GameplaySyncReady)
+                FrameProbe.Sample(_simulation.selectedSpeed, _simulation.frameIndex);
             else FrameProbe.Reset();
         }
 

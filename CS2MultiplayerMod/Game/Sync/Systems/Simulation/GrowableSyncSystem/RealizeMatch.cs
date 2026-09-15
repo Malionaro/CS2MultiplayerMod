@@ -1,3 +1,4 @@
+using CS2MultiplayerMod.Game.Sync.Infrastructure;
 using Game.Buildings;
 using Game.Common;
 using Game.Objects;
@@ -34,18 +35,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < candidates.Length; i++)
                 {
                     Entity candidate = candidates[i];
-                    if (!IsLiveGrowable(candidate, now)) continue;
+                    PropertyEntitySnapshot snapshot;
+                    if (!PropertyEntitySnapshot.TryRead(EntityManager, candidate, out snapshot) ||
+                        !IsLiveGrowable(candidate, now)) continue;
 
-                    float distance = math.distancesq(
-                        EntityManager.GetComponentData<global::Game.Objects.Transform>(candidate)
-                            .m_Position.xz, position.xz);
+                    float distance =
+                        math.distancesq(snapshot.Transform.m_Position.xz, position.xz);
                     if (distance > AnchorMatchDistance * AnchorMatchDistance) continue;
 
                     // Prefer the named prefab, but stay tolerant of a different one: a building
                     // that levelled up no longer carries the prefab a removal names, and that
                     // removal still has to reach it.
-                    bool exact = prefab != Entity.Null &&
-                                 EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab == prefab;
+                    bool exact = prefab != Entity.Null && snapshot.Prefab == prefab;
                     if (bestIsExact && !exact) continue;
                     if (exact && !bestIsExact)
                     {
@@ -76,7 +77,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             NativeList<Entity> blockers)
         {
             blockers.Clear();
-            if (!EntityManager.HasComponent<BuildingData>(prefab)) return;
+            if (!EntityManager.Exists(prefab) || !EntityManager.HasComponent<BuildingData>(prefab)) return;
             float2 wantedExtent = LotExtent(EntityManager.GetComponentData<BuildingData>(prefab).m_LotSize);
             float reach = math.length(wantedExtent) + ZoneCellSize;
 
@@ -96,7 +97,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                         EntityManager.HasComponent<Owner>(candidate)) continue;
 
                     Entity candidatePrefab = EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab;
-                    if (!EntityManager.HasComponent<BuildingData>(candidatePrefab)) continue;
+                    if (!EntityManager.Exists(candidatePrefab) ||
+                        !EntityManager.HasComponent<BuildingData>(candidatePrefab)) continue;
 
                     global::Game.Objects.Transform transform =
                         EntityManager.GetComponentData<global::Game.Objects.Transform>(candidate);
@@ -125,11 +127,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             for (int i = 0; i < blockers.Length; i++)
             {
                 Entity blocker = blockers[i];
-                if (!IsAutonomousGrowable(blocker, now)) continue;
-                if (EntityManager.GetComponentData<PrefabRef>(blocker).m_Prefab != prefab) continue;
-                float distance = math.distancesq(
-                    EntityManager.GetComponentData<global::Game.Objects.Transform>(blocker)
-                        .m_Position.xz, position.xz);
+                PropertyEntitySnapshot snapshot;
+                if (!PropertyEntitySnapshot.TryRead(EntityManager, blocker, out snapshot) ||
+                    !IsAutonomousGrowable(blocker, now)) continue;
+                if (snapshot.Prefab != prefab) continue;
+                float distance = math.distancesq(snapshot.Transform.m_Position.xz, position.xz);
                 if (distance <= AnchorMatchDistance * AnchorMatchDistance) return true;
             }
             return false;
@@ -140,6 +142,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         {
             for (int i = 0; i < blockers.Length; i++)
             {
+                // The search tree can still name a torn-down entity; that is not a blocker.
+                PropertyEntitySnapshot snapshot;
+                if (!PropertyEntitySnapshot.TryRead(EntityManager, blockers[i], out snapshot))
+                    continue;
                 if (!IsAutonomousGrowable(blockers[i], now)) return blockers[i];
             }
             return Entity.Null;

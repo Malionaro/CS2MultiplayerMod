@@ -24,6 +24,7 @@ namespace CS2MultiplayerMod.Core.Session
 
             // A new barrier gets its own progress interval. Otherwise the completed percentage
             // from the previous snapshot would briefly appear while this one is still being saved.
+            ClearOutgoingBlobs();
             _outgoingBlobActive = false;
             _outgoingBlobTotal = 0;
             _outgoingBlobSent = 0;
@@ -80,6 +81,8 @@ namespace CS2MultiplayerMod.Core.Session
             if (Role != SessionRole.Host || !_worldSyncSuspended || epoch != _worldSyncEpoch)
                 return false;
 
+            ClearOutgoingBlobs();
+            _outgoingBlobActive = false;
             SendWorldSyncToTargets(
                 new WorldSyncControlMessage(epoch, WorldSyncStage.Abort, resumeSpeed), targets);
             _worldSyncSuspended = false;

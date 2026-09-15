@@ -53,6 +53,9 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
         // shared buffer would let an incoming frame's length overwrite an outgoing one.
         private readonly byte[] _sendPrefix = new byte[4];
         private readonly byte[] _readPrefix = new byte[4];
+        // Per-type size caps, consulted on the type byte before the body is allocated. Without
+        // them any frame up to the blanket 16 MiB cap is allocated first and rejected later.
+        private static readonly MessageCodec FrameLimits = MessageCodec.CreateDefault();
 
         private volatile Stream _stream; // set once the connection (incl. TLS) is ready
         private volatile string _gracefulCloseReason; // non-null = close after the queue drains
@@ -65,6 +68,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
 
         /// <summary>Raised on the read thread with a complete payload.</summary>
         public Action<ConnectionId, byte[]> OnData;
+        public InboundByteBudget InboundBudget;
 
         /// <summary>Raised once when the connection ends. Reason is human-readable.</summary>
         public Action<ConnectionId, string> OnClosed;
@@ -110,18 +114,18 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
         {
             if (Volatile.Read(ref _closed) != 0 || payload == null) return;
 
-            long pending = Interlocked.Add(ref _pendingSendBytes, payload.Length);
+            long pending = Interlocked.Add(ref _pendingSendBytes, payload.Length + 4L);
             if (pending > MaxPendingSendBytes)
             {
                 // The peer cannot keep up (or is stalling). Shedding it beats letting the
                 // host's memory grow without bound.
-                Interlocked.Add(ref _pendingSendBytes, -payload.Length);
+                Interlocked.Add(ref _pendingSendBytes, -(payload.Length + 4L));
                 Close("send backlog exceeded " + (MaxPendingSendBytes >> 20) + " MiB");
                 return;
             }
 
             try { _sendQueue.Add(payload); }
-            catch { Interlocked.Add(ref _pendingSendBytes, -payload.Length); } // queue completed: closing
+            catch { Interlocked.Add(ref _pendingSendBytes, -(payload.Length + 4L)); } // queue completed: closing
         }
 
         /// <summary>Drains the send queue, doing the blocking socket writes off the game thread.</summary>
@@ -142,7 +146,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
                     }
                     finally
                     {
-                        Interlocked.Add(ref _pendingSendBytes, -payload.Length);
+                        Interlocked.Add(ref _pendingSendBytes, -(payload.Length + 4L));
                     }
                 }
 
@@ -178,6 +182,10 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
             // Unblock the send thread (it either drains and exits, or its current write
             // throws once the stream below is closed).
             try { _sendQueue.CompleteAdding(); } catch { /* ignore */ }
+
+            byte[] abandoned;
+            while (_sendQueue.TryTake(out abandoned))
+                Interlocked.Add(ref _pendingSendBytes, -(abandoned.Length + 4L));
 
             var stream = _stream;
             if (stream != null) { try { stream.Close(); } catch { /* ignore */ } }
@@ -215,21 +223,44 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
                                  | (_readPrefix[2] << 16)
                                  | (_readPrefix[3] << 24);
 
-                    if (length < 0 || length > ProtocolConstants.MaxPayloadBytes)
+                    if (length < 1 || length > ProtocolConstants.MaxPayloadBytes)
                     {
                         Close("invalid frame length: " + length);
                         return;
                     }
 
-                    var payload = new byte[length];
-                    if (length > 0 && !ReadExactly(payload, length))
+                    int type = _stream.ReadByte();
+                    if (type < 0 || !FrameLimits.AcceptsFrame((byte)type, length))
                     {
-                        Close("remote closed mid-frame");
+                        Close("invalid message frame size or type");
                         return;
                     }
-
-                    var handler = OnData;
-                    if (handler != null) handler(Id, payload);
+                    if (InboundBudget != null && !InboundBudget.TryReserve(Id, length))
+                    {
+                        Close("inbound byte budget exceeded");
+                        return;
+                    }
+                    bool delivered = false;
+                    try
+                    {
+                        var payload = new byte[length];
+                        payload[0] = (byte)type;
+                        if (length > 1 && !ReadExactly(payload, length, 1))
+                        {
+                            Close("remote closed mid-frame");
+                            return;
+                        }
+                        var handler = OnData;
+                        if (handler != null)
+                        {
+                            handler(Id, payload);
+                            delivered = true;
+                        }
+                    }
+                    finally
+                    {
+                        if (!delivered) InboundBudget?.Release(Id, length);
+                    }
                 }
             }
             catch (Exception ex)
@@ -277,10 +308,10 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
         }
 
         /// <summary>Read exactly <paramref name="count"/> bytes; false on clean EOF.</summary>
-        private bool ReadExactly(byte[] buffer, int count)
+        private bool ReadExactly(byte[] buffer, int count, int offset = 0)
         {
             Stream stream = _stream;
-            int read = 0;
+            int read = offset;
             while (read < count)
             {
                 int n = stream.Read(buffer, read, count - read);

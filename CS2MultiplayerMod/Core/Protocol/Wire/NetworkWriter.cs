@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace CS2MultiplayerMod.Core.Protocol
@@ -15,6 +16,14 @@ namespace CS2MultiplayerMod.Core.Protocol
     {
         private byte[] _buffer;
         private int _length;
+
+        // Preserve IEEE-754 bits without an array per coordinate on .NET 4.8.
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatBits
+        {
+            [FieldOffset(0)] public float Value;
+            [FieldOffset(0)] public int Bits;
+        }
 
         public NetworkWriter(int initialCapacity = 256)
         {
@@ -61,10 +70,7 @@ namespace CS2MultiplayerMod.Core.Protocol
 
         public void WriteFloat(float value)
         {
-            // BitConverter is little-endian on every supported (x86/ARM) target, matching
-            // the manual little-endian integer writes above.
-            byte[] bytes = BitConverter.GetBytes(value);
-            WriteBytes(bytes, 0, 4);
+            WriteInt(new FloatBits { Value = value }.Bits);
         }
 
         public void WriteString(string value)
@@ -75,14 +81,18 @@ namespace CS2MultiplayerMod.Core.Protocol
                 return;
             }
 
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
-            WriteInt(bytes.Length);
-            WriteBytes(bytes, 0, bytes.Length);
+            int byteCount = Encoding.UTF8.GetByteCount(value);
+            WriteInt(byteCount);
+            EnsureCapacity(byteCount);
+            _length += Encoding.UTF8.GetBytes(value, 0, value.Length, _buffer, _length);
         }
 
         public void WriteBytes(byte[] source, int offset, int count)
         {
-            if (count <= 0) return;
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (offset < 0 || offset > source.Length || count < 0 || count > source.Length - offset)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            if (count == 0) return;
             EnsureCapacity(count);
             Buffer.BlockCopy(source, offset, _buffer, _length, count);
             _length += count;

@@ -21,8 +21,6 @@ namespace CS2MultiplayerMod.Game.Sync.Players
         private ToolRaycastSystem _hoverRaycast;
         private PrefabSystem _hoverPrefabs;
         private PlayerHoverRaycastSystem _hoverNets;
-        private global::Game.Simulation.TerrainSystem _hoverTerrain;
-        private global::Game.Simulation.TerrainHeightData _hoverHeights;
         private readonly PlayerHoverShape[] _netHover = new PlayerHoverShape[PlayerHoverShape.MaxShapes];
         private int _netHoverCount;
         private PrefabBase _netHoverPrefab;
@@ -34,7 +32,6 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             _hoverRaycast = World.GetOrCreateSystemManaged<ToolRaycastSystem>();
             _hoverPrefabs = World.GetOrCreateSystemManaged<PrefabSystem>();
             _hoverNets = World.GetOrCreateSystemManaged<PlayerHoverRaycastSystem>();
-            _hoverTerrain = World.GetOrCreateSystemManaged<global::Game.Simulation.TerrainSystem>();
         }
 
         private void ClearHoverCapture()
@@ -54,11 +51,12 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 return;
             }
             if (!definitions.IsCreated || definitions.Length == 0) return;
-            TakeHeights();
             _netHoverCount = 0;
             _netHoverPrefab = tool.GetPrefab();
             _netHoverMode = tool.actualMode;
             Entity selected = _netHoverPrefab != null ? _hoverPrefabs.GetEntity(_netHoverPrefab) : Entity.Null;
+            Entity underground = selected != Entity.Null && EntityManager.HasComponent<PlaceableNetData>(selected)
+                ? EntityManager.GetComponentData<PlaceableNetData>(selected).m_UndergroundPrefab : Entity.Null;
             // Bound work even for a very large grid/stamp. The display is deliberately partial
             // for those tools, while the real build command retains the complete operation.
             for (int i = 0; i < math.min(definitions.Length, 128) && _netHoverCount < _netHover.Length; i++)
@@ -68,11 +66,13 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                     !EntityManager.HasComponent<CreationDefinition>(entity) ||
                     EntityManager.HasComponent<OwnerDefinition>(entity)) continue;
                 CreationDefinition definition = EntityManager.GetComponentData<CreationDefinition>(entity);
-                if (definition.m_Prefab != selected || definition.m_Owner != Entity.Null ||
+                if (definition.m_Prefab == Entity.Null ||
+                    (definition.m_Prefab != selected && definition.m_Prefab != underground) ||
+                    definition.m_Owner != Entity.Null ||
                     (definition.m_Flags & CreationFlags.Delete) != 0) continue;
                 NetCourse course = EntityManager.GetComponentData<NetCourse>(entity);
                 if (course.m_Length < 0.1f) continue;
-                var shape = CurveShape(course.m_Curve, NetWidth(selected), selected.Index, true);
+                var shape = CurveShape(course.m_Curve, NetWidth(definition.m_Prefab), definition.m_Prefab.Index, true);
                 if (ValidShape(shape)) _netHover[_netHoverCount++] = shape;
             }
         }
@@ -89,7 +89,6 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                     return Array.Empty<PlayerHoverShape>();
                 }
 
-                TakeHeights();
                 bool hasHit = _hoverRaycast.GetRaycastResult(out var hit);
                 if (hasHit && tool.brushing)
                 {
@@ -109,7 +108,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                         Entity prefab = _hoverPrefabs.GetEntity(tool.GetPrefab());
                         if (TryBox(prefab, point.m_Position, point.m_Rotation, prefab.Index, true, out var box))
                             return Single(box);
-                        return Single(Circle(point.m_Position, 8f, prefab.Index, true));
+                        return Array.Empty<PlayerHoverShape>();
                     }
                     return Array.Empty<PlayerHoverShape>();
                 }
@@ -129,6 +128,8 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                         Array.Copy(_netHover, shapes, shapes.Length);
                         return shapes;
                     }
+                    // A net tool without a course has only its cursor/snap point to show.
+                    return Array.Empty<PlayerHoverShape>();
                 }
                 else ClearHoverCapture();
 
@@ -138,16 +139,13 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 // whenever no tool is selected.
                 if (TryTargetShape(hasHit ? hit.m_Owner : Entity.Null, out shape) ||
                     TryTargetShape(_hoverNets.NetHit, out shape)) return Single(shape);
-                return hasHit
-                    ? Single(Circle(hit.m_Hit.m_HitPosition, 5f, hit.m_Owner.Index, false))
-                    : Array.Empty<PlayerHoverShape>();
+                return Array.Empty<PlayerHoverShape>();
             }
         }
 
         /// <summary>
         /// The outline of an existing city entity. Read from the sender's own components: no shared
-        /// entity IDs, city searches, or changes to the receiving player's native
-        /// Highlighted/Selected components.
+        /// entity IDs. The receiver matches the geometry to its own native hover target.
         /// </summary>
         private bool TryTargetShape(Entity target, out PlayerHoverShape shape)
         {
@@ -218,33 +216,13 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             new PlayerHoverShape
             {
                 Kind = PlayerHoverKind.Curve, Key = key, Placement = placement, Width = width,
-                A = Point(Surfaced(curve.a)), B = Point(Surfaced(curve.b)),
-                C = Point(Surfaced(curve.c)), D = Point(Surfaced(curve.d))
+                A = Point(curve.a), B = Point(curve.b),
+                C = Point(curve.c), D = Point(curve.d)
             };
 
         private PlayerHoverShape Circle(float3 point, float diameter, int key, bool placement) =>
-            new PlayerHoverShape { Kind = PlayerHoverKind.Circle, A = Point(Surfaced(point)),
+            new PlayerHoverShape { Kind = PlayerHoverKind.Circle, A = Point(point),
                 Width = math.clamp(diameter, 1f, 5000f), Key = key, Placement = placement };
-
-        /// <summary>
-        /// Lifts a point that sits under the terrain onto the surface. Underground nets - pipes, the
-        /// subway - are drawn by the partner as a ground overlay, which their terrain hides
-        /// completely. Points above ground keep their height, so bridges and elevated track still
-        /// read as elevated.
-        /// </summary>
-        private float3 Surfaced(float3 point)
-        {
-            if (_hoverTerrain == null) return point;
-            point.y = math.max(point.y,
-                global::Game.Simulation.TerrainUtils.SampleHeight(ref _hoverHeights, point));
-            return point;
-        }
-
-        /// <summary>This frame's heights, read once for every point a capture surfaces.</summary>
-        private void TakeHeights()
-        {
-            if (_hoverTerrain != null) _hoverHeights = _hoverTerrain.GetHeightData();
-        }
 
         private static HoverPoint Point(float3 point) => new HoverPoint(point.x, point.y, point.z);
         private static bool ValidShape(PlayerHoverShape shape)

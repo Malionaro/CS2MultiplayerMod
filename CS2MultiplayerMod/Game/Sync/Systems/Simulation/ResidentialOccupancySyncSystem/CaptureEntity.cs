@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using CS2MultiplayerMod.Game.Diagnostics;
 using CS2MultiplayerMod.Game.Sync.Commands;
 using Game.Agents;
 using Game.Buildings;
@@ -21,7 +22,29 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     // and into the form that travels on the wire.
     public partial class ResidentialOccupancySyncSystem
     {
+        // Capture runs on one property at a time and each result is copied into its own array
+        // before these are reused, so one scratch set per shape is enough for the whole sweep.
+        // None of the Core methods below re-enter one another.
+        private readonly List<OccupancyHousehold> _captureHouseholds =
+            new List<OccupancyHousehold>();
+        private readonly List<Entity> _captureHouseholdEntities = new List<Entity>();
+        private readonly List<string> _capturePets = new List<string>();
+        private readonly List<string> _captureVehicles = new List<string>();
+
         private bool TryCaptureProperty(Entity property, out OccupancyProperty result)
+        {
+            using (SyncProfiler.Measure("Occupancy.CaptureProperty"))
+            {
+                try { return TryCapturePropertyCore(property, out result); }
+                finally
+                {
+                    _captureHouseholds.Clear();
+                    _captureHouseholdEntities.Clear();
+                }
+            }
+        }
+
+        private bool TryCapturePropertyCore(Entity property, out OccupancyProperty result)
         {
             result = default(OccupancyProperty);
             if (!IsLiveProperty(property)) return false;
@@ -31,8 +54,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             string prefabName = _prefabIndex.NameOf(prefab);
             if (string.IsNullOrEmpty(prefabName)) return false;
 
-            var households = new List<OccupancyHousehold>();
-            var householdEntities = new List<Entity>();
+            var households = _captureHouseholds;
+            households.Clear();
+            var householdEntities = _captureHouseholdEntities;
+            householdEntities.Clear();
             DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(property, true);
             for (int i = 0; i < renters.Length; i++)
             {
@@ -144,6 +169,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private bool TryCaptureHousehold(Entity entity, out OccupancyHousehold result)
         {
+            try { return TryCaptureHouseholdCore(entity, out result); }
+            finally { _capturePets.Clear(); }
+        }
+
+        private bool TryCaptureHouseholdCore(Entity entity, out OccupancyHousehold result)
+        {
             result = default(OccupancyHousehold);
             Entity prefab = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
             string prefabName = _prefabIndex.NameOf(prefab);
@@ -156,7 +187,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             DynamicBuffer<HouseholdCitizen> members =
                 EntityManager.GetBuffer<HouseholdCitizen>(entity, true);
             if (members.Length > ResidentialOccupancySnapshot.MaxCitizensPerHousehold) return false;
-            var citizens = new List<OccupancyCitizen>(members.Length);
+            var citizens = members.Length == 0
+                ? Array.Empty<OccupancyCitizen>()
+                : new OccupancyCitizen[members.Length];
             for (int i = 0; i < members.Length; i++)
             {
                 Entity citizenEntity = members[i].m_Citizen;
@@ -168,10 +201,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 // An absolute roster must never turn a transient/incomplete read into a remote
                 // deletion. Retry the whole property on a later capture instead.
                 if (!TryCaptureCitizen(citizenEntity, out citizen)) return false;
-                citizens.Add(citizen);
+                citizens[i] = citizen;
             }
 
-            var pets = new List<string>();
+            var pets = _capturePets;
+            pets.Clear();
             if (EntityManager.HasBuffer<HouseholdAnimal>(entity))
             {
                 DynamicBuffer<HouseholdAnimal> animals =
@@ -234,7 +268,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     -ResidentialOccupancySnapshot.MaxMoney,
                     ResidentialOccupancySnapshot.MaxMoney),
                 NameIndices = CaptureNameIndices(entity),
-                Citizens = citizens.ToArray(),
+                Citizens = citizens,
                 Pets = pets.ToArray(),
                 OwnedVehicles = ownedVehicles,
             };
@@ -243,11 +277,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private bool TryCaptureOwnedVehicles(Entity household, out string[] result)
         {
+            try { return TryCaptureOwnedVehiclesCore(household, out result); }
+            finally { _captureVehicles.Clear(); }
+        }
+
+        private bool TryCaptureOwnedVehiclesCore(Entity household, out string[] result)
+        {
             result = EmptyVehiclePrefabs;
             if (!EntityManager.HasBuffer<OwnedVehicle>(household)) return true;
 
             DynamicBuffer<OwnedVehicle> owned = EntityManager.GetBuffer<OwnedVehicle>(household, true);
-            var prefabs = new List<string>(owned.Length);
+            var prefabs = _captureVehicles;
+            prefabs.Clear();
             for (int i = 0; i < owned.Length; i++)
             {
                 Entity vehicle = owned[i].m_Vehicle;

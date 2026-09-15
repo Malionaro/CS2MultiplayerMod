@@ -130,17 +130,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>Called by the state channel on the receiving side; never requests a resync.</summary>
         internal void Enqueue(ResidentialOccupancySnapshot snapshot)
         {
-            if (snapshot == null) return;
-            lock (_incoming)
-            {
-                _incoming.Enqueue(snapshot);
-                while (_incoming.Count > MaxIncomingPages)
-                {
-                    ResidentialOccupancySnapshot dropped;
-                    if (!_incoming.TryDequeue(out dropped)) break;
-                    _droppedPages++;
-                }
-            }
+            if (snapshot != null) _droppedPages += _propertyState.Enqueue(snapshot);
         }
 
         internal void DrainForWorldChange()
@@ -149,6 +139,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             RestoreAllStagedTransferLinks();
             _cache.Clear();
             _appliedState.Clear();
+            _hostScanCadence.Reset();
+            _repairScanCadence.Reset();
             _reapplyRequested.Clear();
             _cacheScratch.Clear();
             _authorizedMoveAways.Clear();

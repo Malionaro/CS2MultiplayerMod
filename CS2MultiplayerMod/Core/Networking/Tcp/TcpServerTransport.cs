@@ -29,6 +29,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
         public const int MaxQueuedEvents = 10000;
 
         private readonly IModLogger _log;
+        private readonly InboundByteBudget _inboundBudget = new InboundByteBudget();
         private readonly ConcurrentQueue<TransportEvent> _events = new ConcurrentQueue<TransportEvent>();
         private readonly ConcurrentDictionary<int, FramedConnection> _connections =
             new ConcurrentDictionary<int, FramedConnection>();
@@ -113,6 +114,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
                     (_certificate != null ? "; starting TLS handshake." : "."));
                 var connection = new FramedConnection(id, client, _certificate)
                 {
+                    InboundBudget = _inboundBudget,
                     // Connected is announced only once the connection is actually usable
                     // (after the TLS handshake), so the session never talks to a socket
                     // that is still negotiating.
@@ -147,7 +149,8 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
                 return false;
             }
 
-            if (_connections.Count >= MaxPendingConnections + 16)
+            if (Volatile.Read(ref _queuedEvents) >= MaxQueuedEvents ||
+                _connections.Count >= MaxPendingConnections + 16)
             {
                 // Coarse global cap: handshaked peers are bounded by the session's player
                 // limit, so runaway growth here means a pending-socket flood.
@@ -166,6 +169,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
             if (Interlocked.Increment(ref _queuedEvents) > MaxQueuedEvents)
             {
                 Interlocked.Decrement(ref _queuedEvents);
+                if (evt.Type == TransportEventType.Data) _inboundBudget.Release(evt.Connection, evt.Payload.Length);
                 // The game thread is not draining fast enough or someone is flooding;
                 // either way, shedding the producer beats unbounded memory growth.
                 _log.Warn(LogTopic.Transport, "Transport event queue full; dropping connection " +
@@ -229,6 +233,7 @@ namespace CS2MultiplayerMod.Core.Networking.Tcp
             {
                 Interlocked.Decrement(ref _queuedEvents);
                 sink.Add(evt);
+                if (evt.Type == TransportEventType.Data) _inboundBudget.Release(evt.Connection, evt.Payload.Length);
                 count++;
             }
             return count;

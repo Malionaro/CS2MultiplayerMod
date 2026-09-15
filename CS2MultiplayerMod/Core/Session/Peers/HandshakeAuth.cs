@@ -67,6 +67,9 @@ namespace CS2MultiplayerMod.Core.Session
 
         private readonly Dictionary<string, Record> _records = new Dictionary<string, Record>();
 
+        /// <summary>How many addresses still hold a failure record or an active ban.</summary>
+        public int TrackedAddresses => _records.Count;
+
         public bool IsBanned(string address, long nowMs)
         {
             if (string.IsNullOrEmpty(address)) return false;

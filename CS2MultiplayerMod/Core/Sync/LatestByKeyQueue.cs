@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 
-namespace CS2MultiplayerMod.Game.Sync.Infrastructure
+namespace CS2MultiplayerMod.Core.Sync
 {
     /// <summary>
     /// FIFO work queue that keeps only the newest value for each key. Replacing queued work does
     /// not move it to the back, so a frequently updated key cannot starve older distinct keys.
     /// </summary>
-    internal sealed class LatestByKeyQueue<TKey, TValue>
+    public sealed class LatestByKeyQueue<TKey, TValue>
     {
         private sealed class Entry
         {
@@ -87,6 +87,17 @@ namespace CS2MultiplayerMod.Game.Sync.Infrastructure
         {
             _order.Clear();
             _entries.Clear();
+        }
+
+        /// <summary>Visit in FIFO order. The visitor may remove the current entry.</summary>
+        public void Visit(Action<TKey, TValue> visitor)
+        {
+            for (var node = _order.First; node != null;)
+            {
+                var next = node.Next;
+                visitor(node.Value, _entries[node.Value].Value);
+                node = next;
+            }
         }
     }
 }

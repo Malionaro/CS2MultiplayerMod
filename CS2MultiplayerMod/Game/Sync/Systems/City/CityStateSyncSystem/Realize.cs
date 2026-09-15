@@ -141,14 +141,25 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         }
 
         /// <summary>Advance the channels that spread one snapshot over several frames.</summary>
+        private readonly PropertySpatialPass _propertySpatialPass = new PropertySpatialPass();
+
         private void PumpChannels()
         {
-            for (int i = 0; i < _pumped.Count; i++)
+            using (_propertySpatialPass.Begin(EntityManager))
             {
-                try { _pumped[i].Pump(EntityManager); }
-                catch (System.Exception ex)
+                for (int i = 0; i < _pumped.Count; i++)
                 {
-                    SyncLog.Warn(LogTopic.City, "CityState: channel pump failed: " + ex.Message);
+                    // Only the read-only property channels may share the pass; anything that can
+                    // move entities drops the cached snapshots on both sides of its pump.
+                    bool propertyChannel = _pumped[i] is IPropertyStateChannel;
+                    if (!propertyChannel) _propertySpatialPass.Invalidate();
+                    try { _pumped[i].Pump(EntityManager); }
+                    catch (System.Exception ex)
+                    {
+                        SyncLog.Warn(LogTopic.City,
+                            "CityState: channel pump failed: " + ex.Message);
+                    }
+                    finally { if (!propertyChannel) _propertySpatialPass.Invalidate(); }
                 }
             }
         }

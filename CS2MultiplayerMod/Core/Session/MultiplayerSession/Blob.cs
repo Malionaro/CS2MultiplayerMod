@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.IO;
 using CS2MultiplayerMod.Core.Diagnostics;
 using CS2MultiplayerMod.Core.Networking;
 using CS2MultiplayerMod.Core.Protocol;
@@ -9,18 +11,48 @@ namespace CS2MultiplayerMod.Core.Session
 {
     public sealed partial class MultiplayerSession
     {
+        /// <summary>Send a blob to every handshaked peer, one recipient at a time.</summary>
+        public void SendBlob(string channel, byte[] data) =>
+            SendBlobTo(ConnectionId.None, channel, data);
+
         /// <summary>
         /// Send a blob to a single peer - auto-ships map to just-joined client
         /// without re-sending to everyone already in the session.
         /// </summary>
         public void SendBlobTo(ConnectionId target, string channel, byte[] data) =>
-            ChunkAndSend(channel, 0, data, target);
+            SendBlobTo(target, channel, 0, data);
 
         /// <summary>Send an epoch-tagged blob to one peer.</summary>
-        public void SendBlobTo(ConnectionId target, string channel, long transferId, byte[] data) =>
-            ChunkAndSend(channel, transferId, data, target);
+        public void SendBlobTo(ConnectionId target, string channel, long transferId, byte[] data)
+        {
+            if (data == null || data.Length == 0) return;
+            using (var source = new BlobSource(new MemoryStream(data, false)))
+                ChunkAndSend(channel, transferId, source, target);
+        }
 
-        private void ChunkAndSend(string channel, long transferId, byte[] data, ConnectionId target)
+        public void SendBlobTo(ConnectionId target, string channel, long transferId, BlobSource source) =>
+            ChunkAndSend(channel, transferId, source, target);
+
+        private sealed class OutgoingBlob
+        {
+            public ConnectionId Target;
+            public string Channel;
+            public long TransferId;
+            public BlobSource Data;
+            public int Offset;
+        }
+
+        // One reusable chunk buffer: SendTo encodes the message before it returns, so the same
+        // buffer can carry every chunk of every transfer.
+        private readonly byte[] _blobChunkBuffer = new byte[ProtocolConstants.BlobChunkBytes];
+        // Ceiling for one transfer and for everything being reassembled at once.
+        private const long MaxBlobMemoryBytes = BlobSource.MaxBytes;
+        // Encoded backlog allowed to stand ahead of the socket before the next chunk is cut.
+        private const long BlobSendWindowBytes = 2L * 1024 * 1024;
+        private readonly ConcurrentQueue<OutgoingBlob> _outgoingBlobs = new ConcurrentQueue<OutgoingBlob>();
+        private readonly Dictionary<string, long> _completedBlobTransfers = new Dictionary<string, long>();
+
+        private void ChunkAndSend(string channel, long transferId, BlobSource data, ConnectionId target)
         {
             if (_transport == null || Status != SessionStatus.Connected || data == null) return;
 
@@ -40,42 +72,79 @@ namespace CS2MultiplayerMod.Core.Session
                 return;
             }
 
-            int total = data.Length;
-            int chunkBytes = ProtocolConstants.BlobChunkBytes;
-            int chunkCount = (total + chunkBytes - 1) / chunkBytes;
-            _log.Detail(LogTopic.WorldTransfer, "Sending blob '" + channel + "': " + total +
-                " bytes in " + chunkCount + " chunk(s) to " +
-                (target.IsNone ? "all peers" : target.ToString()) + ".");
-
-            int offset = 0;
-            do
+            if (data.Length == 0 || data.Length > MaxBlobMemoryBytes ||
+                string.IsNullOrEmpty(channel) || channel.Length > WireGuard.MaxNameLength)
+                throw new ArgumentException("Invalid outgoing blob.");
+            if (target.IsNone)
             {
-                int size = total - offset;
-                if (size > chunkBytes) size = chunkBytes;
-
-                var chunk = new byte[size];
-                Array.Copy(data, offset, chunk, 0, size);
-                offset += size;
-                bool last = offset >= total;
-
-                var message = new BlobChunkMessage(channel, transferId, total, last, chunk);
-                if (!target.IsNone)
-                    SendTo(target, message);
-                else
-                    BroadcastToAll(message, ConnectionId.None);
+                foreach (Peer peer in _peers.Values)
+                    if (peer.Handshaked) ChunkAndSend(channel, transferId, data, peer.Connection);
+                return;
             }
-            while (offset < total);
+            // Fanout retains one shared snapshot. A different source must wait for this transfer.
+            foreach (OutgoingBlob queued in _outgoingBlobs)
+            {
+                if (!ReferenceEquals(queued.Data, data))
+                    throw new InvalidOperationException("Another snapshot is still queued.");
+                if (queued.Target == target && queued.Channel == channel &&
+                    queued.TransferId == transferId) return;
+            }
+            if (_outgoingBlobs.Count >= 24)
+                throw new InvalidOperationException("Too many snapshot recipients.");
+            if (!_outgoingBlobActive)
+            {
+                _outgoingBlobTotal = 0;
+                _outgoingBlobSent = 0;
+            }
+            data.Retain();
+            _outgoingBlobs.Enqueue(new OutgoingBlob
+                { Target = target, Channel = channel, TransferId = transferId, Data = data });
+            _outgoingBlobTotal += data.Length;
+            _outgoingBlobActive = true;
+        }
 
-            // The loop above is non-blocking, so by now the whole blob sits in the send
-            // queue and barely any has gone out — snapshot that backlog as the "to send"
-            // total so Update() can report drain progress to the host.
-            _outgoingBlobTotal = _transport.PendingSendBytes;
-            _outgoingBlobSent = 0;
-            _outgoingBlobActive = _outgoingBlobTotal > 0;
+        private void ClearOutgoingBlobs()
+        {
+            while (_outgoingBlobs.TryDequeue(out OutgoingBlob blob)) blob.Data.Dispose();
+        }
 
-            _log.Detail(LogTopic.WorldTransfer, "Finished queueing blob '" + channel + "' (" + total +
-                " bytes, " + chunkCount + " chunk(s)) to " +
-                (target.IsNone ? "all peers" : target.ToString()) + ".");
+        private void PumpOutgoingBlobs()
+        {
+            // Bound encoded backlog and work per update; recipients are served sequentially.
+            for (int chunks = 0; chunks < 8 && _outgoingBlobs.Count > 0 &&
+                 _transport.PendingSendBytes < BlobSendWindowBytes; chunks++)
+            {
+                OutgoingBlob next;
+                if (!_outgoingBlobs.TryPeek(out next)) break;
+                Peer peer;
+                if (!_peers.TryGetValue(next.Target.Value, out peer) || !peer.Handshaked ||
+                    (next.TransferId > 0 && (!_worldSyncSuspended || next.TransferId != _worldSyncEpoch)))
+                {
+                    _outgoingBlobTotal -= next.Data.Length - next.Offset;
+                    _outgoingBlobs.TryDequeue(out _);
+                    next.Data.Dispose();
+                    continue;
+                }
+                int size = Math.Min(ProtocolConstants.BlobChunkBytes, next.Data.Length - next.Offset);
+                byte[] chunk = _blobChunkBuffer;
+                try { next.Data.Read(next.Offset, chunk, size); }
+                catch (Exception ex)
+                {
+                    _log.Warn(LogTopic.WorldTransfer, "Snapshot read failed: " + ex.Message);
+                    _transport.Disconnect(next.Target);
+                    _outgoingBlobs.TryDequeue(out _);
+                    next.Data.Dispose();
+                    continue;
+                }
+                next.Offset += size;
+                SendTo(next.Target, new BlobChunkMessage(next.Channel, next.TransferId,
+                    next.Data.Length, next.Offset == next.Data.Length, chunk, size));
+                if (next.Offset == next.Data.Length)
+                {
+                    _outgoingBlobs.TryDequeue(out _);
+                    next.Data.Dispose();
+                }
+            }
         }
 
         private void HandleBlobChunk(ConnectionId from, Peer peer, BlobChunkMessage chunk, long nowUnixMs)
@@ -110,6 +179,10 @@ namespace CS2MultiplayerMod.Core.Session
                 return;
             }
 
+            long completedTransfer;
+            if (chunk.TransferId > 0 && _completedBlobTransfers.TryGetValue(chunk.Channel, out completedTransfer) &&
+                completedTransfer == chunk.TransferId) return;
+
             if (chunk.TotalBytes <= 0 || chunk.TotalBytes > maxBytes)
             {
                 _log.Warn(LogTopic.WorldTransfer, "Dropping blob '" + chunk.Channel +
@@ -135,7 +208,9 @@ namespace CS2MultiplayerMod.Core.Session
             }
             if (!_blobs.TryGetValue(chunk.Channel, out reassembler))
             {
-                if (_blobs.Count >= MaxActiveBlobs)
+                long reservedBytes = 0;
+                foreach (BlobReassembler active in _blobs.Values) reservedBytes += active.ExpectedBytes;
+                if (_blobs.Count >= MaxActiveBlobs || chunk.TotalBytes > MaxBlobMemoryBytes - reservedBytes)
                 {
                     _log.Warn(LogTopic.WorldTransfer, "Dropping blob '" + chunk.Channel +
                         "': too many active transfers.");
@@ -166,6 +241,7 @@ namespace CS2MultiplayerMod.Core.Session
                 _blobs.Remove(chunk.Channel);
                 _blobTransferIds.Remove(chunk.Channel);
                 ClearBlobProgress();
+                if (chunk.TransferId > 0) _completedBlobTransfers[chunk.Channel] = chunk.TransferId;
                 NotifyBlob(chunk.Channel, chunk.TransferId, data);
             }
             catch (ProtocolException ex)

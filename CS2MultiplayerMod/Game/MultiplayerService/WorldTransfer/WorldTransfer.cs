@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using System.Threading;
 using Colossal;
 using Colossal.IO.AssetDatabase;
 using CS2MultiplayerMod.Core.Diagnostics;
@@ -24,6 +25,7 @@ namespace CS2MultiplayerMod.Game
         private const string WorldSnapshotName = "_CS2MP_HostWorldSnapshot";
         internal const string WorldSnapshotFileName = WorldSnapshotName + ".cok";
 
+        private static readonly SemaphoreSlim SnapshotSaveGate = new SemaphoreSlim(1, 1);
         private long _deferredMapTransferId;
         private byte[] _deferredMapData;
 
@@ -32,21 +34,37 @@ namespace CS2MultiplayerMod.Game
         /// deliberately avoids AutoSaveSystem: multiplayer snapshots are transport artifacts,
         /// not user autosaves, and must never participate in the game's retention pruning.
         /// </summary>
-        internal async Task<byte[]> CreateWorldSnapshot(World world)
+        internal async Task<BlobSource> CreateWorldSnapshot(World world, long epoch, CancellationToken cancellation)
         {
-            byte[] snapshot = null;
-            await TaskManager.instance.EnqueueTask(
-                SaveHelpers.kSaveLoadTaskName,
-                async () => { snapshot = await SaveWorldSnapshot(world); },
-                1);
-
-            if (snapshot == null || snapshot.Length == 0)
-                throw new InvalidOperationException("The game produced no world snapshot data.");
-            return snapshot;
+            await SnapshotSaveGate.WaitAsync(cancellation);
+            BlobSource snapshot = null;
+            try
+            {
+                await TaskManager.instance.EnqueueTask(
+                    SaveHelpers.kSaveLoadTaskName,
+                    async () => { snapshot = await SaveWorldSnapshot(world, epoch, cancellation); },
+                    1);
+                ValidateSnapshotEpoch(world, epoch, cancellation);
+                if (snapshot == null || snapshot.Length == 0)
+                    throw new InvalidOperationException("The game produced no world snapshot data.");
+                return snapshot;
+            }
+            catch { snapshot?.Dispose(); throw; }
+            finally { SnapshotSaveGate.Release(); }
         }
 
-        private async Task<byte[]> SaveWorldSnapshot(World world)
+        private void ValidateSnapshotEpoch(World world, long epoch, CancellationToken cancellation)
         {
+            cancellation.ThrowIfCancellationRequested();
+            if (world == null || !world.IsCreated || !_worldSyncBarrierActive ||
+                _activeWorldSyncEpoch != epoch || _session.Role != SessionRole.Host ||
+                _session.Status != SessionStatus.Connected)
+                throw new OperationCanceledException("The snapshot world or epoch is no longer active.");
+        }
+
+        private async Task<BlobSource> SaveWorldSnapshot(World world, long epoch, CancellationToken cancellation)
+        {
+            ValidateSnapshotEpoch(world, epoch, cancellation);
             if (_session.Role != SessionRole.Host || _session.Status != SessionStatus.Connected)
                 throw new InvalidOperationException("Only a connected host can create a world snapshot.");
 
@@ -72,6 +90,9 @@ namespace CS2MultiplayerMod.Game
                     saveInfo,
                     snapshotDatabase,
                     (ScreenCaptureHelper.AsyncRequest)null);
+                ValidateSnapshotEpoch(world, epoch, cancellation);
+                if (!ReferenceEquals(manager, GameManager.instance))
+                    throw new OperationCanceledException("The active game manager changed.");
                 if (!completed)
                     throw new InvalidOperationException("The game did not complete the world snapshot save.");
 
@@ -81,7 +102,7 @@ namespace CS2MultiplayerMod.Game
                 if (!snapshotDatabase.Exists<PackageAsset>(packagePath, out package) || package == null)
                     throw new InvalidOperationException("The game did not create the world snapshot package.");
 
-                byte[] data = ReadWorldSnapshotPackage(package);
+                BlobSource data = ReadWorldSnapshotPackage(package, cancellation);
                 _log.Detail(LogTopic.WorldTransfer, "Prepared isolated recovery snapshot '" +
                     WorldSnapshotFileName + "' (" + (data.Length / 1024) + " KB).");
                 return data;
@@ -92,12 +113,16 @@ namespace CS2MultiplayerMod.Game
                 {
                     // GameManager.Save always updates Continue Game, even for a temporary target.
                     // Put the player's previous save back before destroying that target database.
-                    userState.lastSaveGameMetadata = previousLastSave;
-                    userState.ApplyAndSave();
-                    if (previousLastSaveInfo != null)
-                        Launcher.SaveLastSaveMetadata(previousLastSaveInfo);
-                    else
-                        Launcher.DeleteLastSaveMetadata();
+                    if (ReferenceEquals(manager, GameManager.instance) &&
+                        ReferenceEquals(userState, manager.settings.userState))
+                    {
+                        userState.lastSaveGameMetadata = previousLastSave;
+                        userState.ApplyAndSave();
+                        if (previousLastSaveInfo != null)
+                            Launcher.SaveLastSaveMetadata(previousLastSaveInfo);
+                        else
+                            Launcher.DeleteLastSaveMetadata();
+                    }
                 }
                 finally
                 {
@@ -107,7 +132,7 @@ namespace CS2MultiplayerMod.Game
             }
         }
 
-        private static byte[] ReadWorldSnapshotPackage(PackageAsset package)
+        private static BlobSource ReadWorldSnapshotPackage(PackageAsset package, CancellationToken cancellation)
         {
             using (Stream input = package.GetReadStream())
             {
@@ -117,21 +142,31 @@ namespace CS2MultiplayerMod.Game
                 if (length > MaxSaveBlobBytes)
                     throw new InvalidDataException("The world snapshot exceeds the transfer limit.");
 
-                var data = new byte[(int)length];
-                int offset = 0;
-                while (offset < data.Length)
+                string path = Path.Combine(Path.GetTempPath(), "cs2mp-" + Guid.NewGuid().ToString("N") + ".snapshot");
+                var output = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite,
+                    FileShare.Read, 65536, FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+                try
                 {
-                    int read = input.Read(data, offset, data.Length - offset);
-                    if (read <= 0)
-                        throw new EndOfStreamException("The world snapshot package ended unexpectedly.");
-                    offset += read;
+                    var buffer = new byte[65536];
+                    long remaining = length;
+                    while (remaining > 0)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        int read = input.Read(buffer, 0, (int)Math.Min(remaining, buffer.Length));
+                        if (read <= 0) throw new EndOfStreamException("The world snapshot package ended unexpectedly.");
+                        output.Write(buffer, 0, read);
+                        remaining -= read;
+                    }
+                    output.Flush();
+                    output.Position = 0;
+                    return new BlobSource(output);
                 }
-                return data;
+                catch { output.Dispose(); throw; }
             }
         }
 
         /// <summary>Queue one already-read snapshot for one participant, tagged with its epoch.</summary>
-        internal void StreamWorldSnapshot(ConnectionId target, long epoch, byte[] data,
+        internal void StreamWorldSnapshot(ConnectionId target, long epoch, BlobSource data,
             string saveName)
         {
             if (_session.Role != SessionRole.Host || target.IsNone || data == null || epoch <= 0)

@@ -98,9 +98,14 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             // is a public type; a rename in a future patch degrades to the reduced fallback paths.
             _createDefinitionsMethod = typeof(ObjectToolBaseSystem).GetMethod("CreateDefinitions",
                 BindingFlags.Instance | BindingFlags.NonPublic);
-            if (_createDefinitionsMethod != null &&
-                _createDefinitionsMethod.GetParameters().Length != CreateDefinitionsArgumentCount)
-                _createDefinitionsMethod = null;
+            _createDefinitionsTakesOverrides = false;
+            if (_createDefinitionsMethod != null)
+            {
+                int parameters = _createDefinitionsMethod.GetParameters().Length;
+                _createDefinitionsTakesOverrides = parameters == CreateDefinitionsArgumentCount + 1;
+                if (parameters != CreateDefinitionsArgumentCount && !_createDefinitionsTakesOverrides)
+                    _createDefinitionsMethod = null;
+            }
             _randomSeedValueField = typeof(RandomSeed).GetField("m_Seed",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -111,7 +116,30 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             return _createDefinitionsMethod != null && _randomSeedValueField != null;
         }
 
+        // Game 1.6.2 appended a placement-overrides argument ahead of the job handle; earlier
+        // builds have one fewer. Bind to whichever this build declares rather than refusing the
+        // generator outright, which silently drops upgrades and moves to the reduced path.
         private const int CreateDefinitionsArgumentCount = 23;
+
+        private static bool _createDefinitionsTakesOverrides;
+
+        // Isolated so that a build without the type never has to resolve it: the JIT binds every
+        // type a method names when it first compiles that method, not when the line runs.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static object EmptyPlacementOverrides()
+        {
+            return default(PlacementOverrides);
+        }
+
+        /// <summary>Drops the second-to-last (overrides) slot for a build that predates it.</summary>
+        private static object[] TrimOverridesArgument(object[] arguments)
+        {
+            var trimmed = new object[arguments.Length - 1];
+            System.Array.Copy(arguments, trimmed, arguments.Length - 2);
+            trimmed[trimmed.Length - 1] = arguments[arguments.Length - 1];
+            return trimmed;
+        }
 
         private static FieldInfo ToolSeedField(System.Type toolType)
         {
@@ -212,8 +240,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     Snap.None,
                     AgeMask.Sapling,
                     false,                                      // decorationMode
+                    // Placement overrides (parent mesh, group index, probability) are editor
+                    // staging values; a replicated placement carries none.
+                    _createDefinitionsTakesOverrides ? EmptyPlacementOverrides() : null,
                     default(JobHandle),
                 };
+                if (!_createDefinitionsTakesOverrides)
+                    arguments = TrimOverridesArgument(arguments);
 
                 object handle = _createDefinitionsMethod.Invoke(tool, arguments);
                 if (handle is JobHandle) ((JobHandle)handle).Complete();

@@ -25,3 +25,7 @@ tests/
 # MkDocs build output
 site/
 .venv/
+
+# Release packaging output (PDBs embed local build paths)
+build/*/
+build/*.zip

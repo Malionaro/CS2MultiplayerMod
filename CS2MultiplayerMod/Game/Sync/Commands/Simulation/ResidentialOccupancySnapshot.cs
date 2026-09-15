@@ -221,7 +221,7 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
                     writer.WriteInt(household.Rent);
                     writer.WriteInt(household.Savings);
                     writer.WriteInt(household.Money);
-                    writer.WriteInt(household.SalaryLastDay);
+                    writer.WriteInt(household.Income);
                     writer.WriteShort(household.ConsumptionPerDay);
                     writer.WriteInt(unchecked((int)household.ShoppedValuePerDay));
                     writer.WriteInt(unchecked((int)household.ShoppedValueLastDay));
@@ -368,7 +368,7 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
                         Rent = reader.ReadInt(),
                         Savings = reader.ReadInt(),
                         Money = reader.ReadInt(),
-                        SalaryLastDay = reader.ReadInt(),
+                        Income = reader.ReadInt(),
                         ConsumptionPerDay = reader.ReadShort(),
                         ShoppedValuePerDay = unchecked((uint)reader.ReadInt()),
                         ShoppedValueLastDay = unchecked((uint)reader.ReadInt()),

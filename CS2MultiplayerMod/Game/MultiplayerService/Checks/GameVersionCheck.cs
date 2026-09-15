@@ -21,6 +21,7 @@ namespace CS2MultiplayerMod.Game
         public static readonly string[] TestedVersions =
         {
             "1.6.0f1",
+            "1.6.2f1",
         };
 
         /// <summary>The running game build, or "" if it cannot be read.</summary>

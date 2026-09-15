@@ -260,7 +260,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 ShoppedValuePerDay = data.m_ShoppedValuePerDay,
                 ShoppedValueLastDay = data.m_ShoppedValueLastDay,
                 LastDayFrameIndex = data.m_LastDayFrameIndex,
-                SalaryLastDay = Clamp(data.m_SalaryLastDay,
+                Income = Clamp(data.m_Income,
                     -ResidentialOccupancySnapshot.MaxMoney,
                     ResidentialOccupancySnapshot.MaxMoney),
                 MoneySpentOnBuildingLevelingLastDay = Clamp(

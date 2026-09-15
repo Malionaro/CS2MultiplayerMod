@@ -127,7 +127,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 folded = (folded ^ (departing ? 1 : 0)) * 16777619;
                 folded = (folded ^ Clamp(rented.m_Rent, 0,
                     ResidentialOccupancySnapshot.MaxRent)) * 16777619;
-                folded = (folded ^ Clamp(data.m_SalaryLastDay,
+                folded = (folded ^ Clamp(data.m_Income,
                     -ResidentialOccupancySnapshot.MaxMoney,
                     ResidentialOccupancySnapshot.MaxMoney)) * 16777619;
                 folded = FoldNameIndices(folded, household);

@@ -11,7 +11,6 @@
     <Compile Include="../../CS2MultiplayerMod/Core/**/*.cs" />
     <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/PlayerHoverCapture.cs" />
     <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/RemotePlayerHoverRendering.cs" />
-    <Compile Include="../../CS2MultiplayerMod/Game/Sync/Players/RemotePlayerHighlightSystem.cs" />
     <Reference Include="Unity.Mathematics"><HintPath>$(GameManagedPath)/Unity.Mathematics.dll</HintPath></Reference>
     <Reference Include="Colossal.Mathematics"><HintPath>$(GameManagedPath)/Colossal.Mathematics.dll</HintPath></Reference>
   </ItemGroup>

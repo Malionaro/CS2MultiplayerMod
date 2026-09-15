@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using CS2MultiplayerMod.Core.Diagnostics;
@@ -217,6 +217,13 @@ namespace CS2MultiplayerMod
             // the same authoritative snapshot when the residents panel calculates its averages.
             updateSystem.UpdateAfter<Game.Sync.Systems.ResidentialHouseholdEconomyCorrectionSystem,
                 global::Game.Simulation.RentAdjustSystem>(SystemUpdatePhase.GameSimulation);
+            // Income is the one household scalar whose readers run before that boundary: the
+            // wealth component of citizen wellbeing is evaluated a few systems after the pass that
+            // recomputes income from this peer's own employment graph, and the building's
+            // good-wealth prop requirement is read later still. Restore the host value here, in
+            // between, or both follow the client's local employment instead of the host's.
+            updateSystem.UpdateAfter<Game.Sync.Systems.ResidentialHouseholdIncomeBoundarySystem,
+                global::Game.Simulation.HouseholdBehaviorSystem>(SystemUpdatePhase.GameSimulation);
             // ResourceBuyerSystem runs real shoppers and SaleEvents after the earlier household
             // boundary. Keep those agents alive, then correct the money and shopped-value result
             // to the host snapshot at the first safe point after the sale is booked.
@@ -290,11 +297,6 @@ namespace CS2MultiplayerMod
             // Renders the other players' camera positions as ground rings. Rendering phase
             // so the markers draw every frame, in every state (including paused).
             updateSystem.UpdateAt<Game.Sync.Players.RemotePlayerMarkerSystem>(SystemUpdatePhase.Rendering);
-            // Hands what a partner is pointing at to the game's own hover outline. Not Rendering:
-            // this one adds and removes a component, and ModificationEnd is where the mod's other
-            // structural work already sits - while still running with the simulation paused.
-            updateSystem.UpdateAt<Game.Sync.Players.RemotePlayerHighlightSystem>(
-                SystemUpdatePhase.ModificationEnd);
             // UIUpdate, not GameSimulation: policies can be toggled while the game is paused
             // (the policies panel works paused - the game routes the change through an event
             // entity consumed by the every-frame modification pipeline), but the GameSimulation
@@ -325,6 +327,12 @@ namespace CS2MultiplayerMod
             updateSystem.UpdateAt<Game.Sync.Systems.AreaSyncSystem>(SystemUpdatePhase.ModificationEnd);
             updateSystem.UpdateAt<Game.Sync.Systems.RouteSyncSystem>(SystemUpdatePhase.ModificationEnd);
             updateSystem.UpdateAt<Game.Sync.Systems.TilePurchaseSyncSystem>(SystemUpdatePhase.ModificationEnd);
+            // ModificationEnd, with the rest of the capture systems: another mod's tool has applied
+            // by this point in the frame, and the engine's chunk-change record still says which of
+            // its types were written to. It also keeps running while the game is paused, and these
+            // mods are used on a paused city as much as a running one.
+            updateSystem.UpdateAt<Game.Sync.Systems.Mods.ModStateSyncSystem>(
+                SystemUpdatePhase.ModificationEnd);
             // ModificationEnd, after the game's event initialization at Modification2: that pass is
             // what turns a bare disaster event into a placed one (position, radius, duration), and
             // the Created tag it keys on is gone by the next frame. Capturing here reads the

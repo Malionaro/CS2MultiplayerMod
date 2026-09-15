@@ -1,4 +1,4 @@
-using CS2MultiplayerMod.Core.Session;
+﻿using CS2MultiplayerMod.Core.Session;
 using CS2MultiplayerMod.Game.Sync.Commands;
 
 namespace CS2MultiplayerMod.Game
@@ -25,6 +25,7 @@ namespace CS2MultiplayerMod.Game
             VisualCustomizationCommand.Id, ColorPaletteCommand.Id,
             DisasterEventCommand.Id, EntityNameCommand.Id,
             GrowableLifecycleCommand.Id,
+            ModTypeTableCommand.Id, ModStateCommand.Id,
         };
 
         internal static void Register(MultiplayerSession session)
@@ -67,6 +68,8 @@ namespace CS2MultiplayerMod.Game
                 case DisasterEventCommand.Id: return "disaster-event";
                 case EntityNameCommand.Id: return "entity-name";
                 case GrowableLifecycleCommand.Id: return "growable-lifecycle";
+                case ModTypeTableCommand.Id: return "mod-type-table";
+                case ModStateCommand.Id: return "mod-state";
                 default: return "unknown";
             }
         }

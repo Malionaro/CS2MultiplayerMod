@@ -28,7 +28,7 @@
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1.6.1h1" />
+	<ModVersion Value="0.1.7" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.6.*" />
 	<!--Dependency for the mod, can be set multiple times-->
@@ -37,11 +37,8 @@
 	<RequiredDLC Value="" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-		Hotfix 0.1.6.1h1
-
-		- Fixed the Multiplayer button missing from the main menu on the first launch after a mod update.
-
-		Paradox Mods can finish enabling the mod after the main menu is already on screen, and the menu did not pick the button up on its own. The mod now rebuilds the menu itself instead of needing a game restart.
+		Version 0.1.7
+		Added Traffic Mod support aswell as 1.6.2f1 support
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="discord" Url="https://discord.gg/KFZTW2YSJt" />

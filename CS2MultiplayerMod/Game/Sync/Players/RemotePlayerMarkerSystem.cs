@@ -101,7 +101,6 @@ namespace CS2MultiplayerMod.Game.Sync.Players
 
         private OverlayRenderSystem _overlay;
         private CameraUpdateSystem _camera;
-        private RemotePlayerHighlightSystem _highlights;
         private readonly Plane[] _frustum = new Plane[6];
 
         /// <summary>A received position, stamped with the moment it arrived.</summary>
@@ -141,7 +140,6 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             base.OnCreate();
             _overlay = World.GetOrCreateSystemManaged<OverlayRenderSystem>();
             _camera = World.GetExistingSystemManaged<CameraUpdateSystem>();
-            _highlights = World.GetOrCreateSystemManaged<RemotePlayerHighlightSystem>();
             _hoverTerrain = World.GetOrCreateSystemManaged<global::Game.Simulation.TerrainSystem>();
         }
 
@@ -207,10 +205,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 Line3.Segment beam;
                 bool beamVisible = TryBuildBeam(focus, trail.Eye, localEye, out beam) &&
                                    (!culling || SegmentVisible(beam));
-                // An object a partner is pointing at wears the game's own outline where this city
-                // could find it; only what is left over is drawn.
-                bool outlined = _highlights.HasNativeHighlight(p.PlayerId);
-                bool hoverVisible = HoverVisible(trail, culling, outlined);
+                bool hoverVisible = HoverVisible(trail, culling);
                 if (!ringVisible && !beamVisible && !hoverVisible) continue;
 
                 if (!haveBuffer)
@@ -257,7 +252,7 @@ namespace CS2MultiplayerMod.Game.Sync.Players
                 // A line from that point up towards their camera, so you can see how high they
                 // are "flying" (and roughly where they are when zoomed out).
                 if (beamVisible) buffer.DrawLine(color, beam, BeamWidth, true);
-                if (hoverVisible) DrawHover(buffer, trail, color, culling, outlined);
+                if (hoverVisible) DrawHover(buffer, trail, color, culling);
             }
 
             // A player who left the session stops turning up in the loop above, so their trail is

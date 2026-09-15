@@ -67,6 +67,7 @@ namespace CS2MultiplayerMod.Game.Diagnostics
             "players",
             "ui",
             "perf",
+            "mod-sync",
         };
 
         /// <summary>

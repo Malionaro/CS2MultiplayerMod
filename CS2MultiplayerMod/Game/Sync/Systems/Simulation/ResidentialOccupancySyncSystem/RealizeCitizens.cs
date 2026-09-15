@@ -378,7 +378,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>
         /// Keep the wage level coherent when both peers already have this citizen employed. The
         /// employment graph remains local because a valid Worker also requires a matching workplace
-        /// Employee entry. Displayed household income is authoritative through SalaryLastDay on the
+        /// Employee entry. Displayed household income is authoritative through Income on the
         /// household snapshot, so no invalid placeholder job is manufactured here.
         /// </summary>
         private void ApplyWageLevel(Entity citizen, OccupancyCitizen wanted)

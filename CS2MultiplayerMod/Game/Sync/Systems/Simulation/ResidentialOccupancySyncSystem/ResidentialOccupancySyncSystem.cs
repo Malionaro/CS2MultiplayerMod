@@ -266,6 +266,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private int _renamedEntities;
         private int _economyCorrections;
         private int _economyDeferred;
+        private int _incomeCorrections;
+        private int _incomeDeferred;
         private int _feeInputCorrections;
         private int _feeInputDeferred;
 

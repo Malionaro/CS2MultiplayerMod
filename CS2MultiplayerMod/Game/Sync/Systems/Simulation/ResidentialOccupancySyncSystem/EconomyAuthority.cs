@@ -28,7 +28,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             public uint ShoppedValuePerDay;
             public uint ShoppedValueLastDay;
             public uint LastDayFrameIndex;
-            public int SalaryLastDay;
+            public int Income;
             public int MoneySpentOnBuildingLevelingLastDay;
 
             public static DesiredHouseholdEconomy From(OccupancyHousehold household,
@@ -48,7 +48,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     ShoppedValuePerDay = household.ShoppedValuePerDay,
                     ShoppedValueLastDay = household.ShoppedValueLastDay,
                     LastDayFrameIndex = household.LastDayFrameIndex,
-                    SalaryLastDay = household.SalaryLastDay,
+                    Income = household.Income,
                     MoneySpentOnBuildingLevelingLastDay =
                         household.MoneySpentOnBuildingLevelingLastDay,
                 };
@@ -154,21 +154,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 Entity household;
                 if (!_economyCorrectionQueue.TryDequeue(out household)) break;
                 _economyCorrectionMembers.Remove(household);
-                ulong householdId;
                 DesiredHouseholdEconomy wanted;
-                if (!TryGetBoundHouseholdId(household, out householdId) ||
-                    !_desiredHouseholdEconomies.TryGetValue(householdId, out wanted) ||
-                    !EntityManager.HasComponent<PropertyRenter>(household)) continue;
-
-                PropertyRenter renter = EntityManager.GetComponentData<PropertyRenter>(household);
-                Entity property = renter.m_Property;
-                // One property-identity lookup, not two: the desired location and the page the
-                // values came from are both compared against this same local identity.
-                PropertyRentIdentity identity, desired;
-                if (!TryGetPropertyIdentity(property, out identity) ||
-                    !TryGetDesiredPropertyIdentity(householdId, out desired) ||
-                    !desired.Equals(identity) ||
-                    !wanted.PropertyIdentity.Equals(identity)) continue;
+                Entity property;
+                if (!TryResolveCorrectionTarget(household, out wanted, out property)) continue;
 
                 if (ApplyHouseholdEconomy(household, property, wanted))
                     _economyCorrections++;
@@ -184,6 +172,99 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _economyCorrectionMembers.Clear();
         }
 
+        /// <summary>
+        /// The household must still be the host household this page described, and must still live
+        /// where that page put it, before any host value is written over a local one.
+        /// </summary>
+        private bool TryResolveCorrectionTarget(Entity household,
+            out DesiredHouseholdEconomy wanted, out Entity property)
+        {
+            wanted = default(DesiredHouseholdEconomy);
+            property = Entity.Null;
+            ulong householdId;
+            if (!TryGetBoundHouseholdId(household, out householdId) ||
+                !_desiredHouseholdEconomies.TryGetValue(householdId, out wanted) ||
+                !EntityManager.HasComponent<PropertyRenter>(household)) return false;
+
+            property = EntityManager.GetComponentData<PropertyRenter>(household).m_Property;
+            // One property-identity lookup, not two: the desired location and the page the
+            // values came from are both compared against this same local identity.
+            PropertyRentIdentity identity, desired;
+            return TryGetPropertyIdentity(property, out identity) &&
+                   TryGetDesiredPropertyIdentity(householdId, out desired) &&
+                   desired.Equals(identity) &&
+                   wanted.PropertyIdentity.Equals(identity);
+        }
+
+        // Income is corrected on its own, earlier boundary because it is read during the same
+        // simulation frame that recomputes it: the wealth component of citizen wellbeing and the
+        // GoodWealth sub-object requirement both consume Household.m_Income well before the full
+        // economy boundary runs. A ceiling four times the economy one costs less overall - this
+        // pass runs a quarter as often and writes one field, where that one rewrites the money
+        // buffer and the tax record.
+        private const int MaxHouseholdIncomeCorrectionsPerFrame =
+            4 * MaxHouseholdEconomyCorrectionsPerFrame;
+
+        private readonly ConcurrentQueue<Entity> _incomeCorrectionQueue =
+            new ConcurrentQueue<Entity>();
+        private readonly HashSet<Entity> _incomeCorrectionMembers = new HashSet<Entity>();
+
+        /// <summary>Same pre-filter as the economy queue: two dictionary probes, no ECS access.</summary>
+        internal void QueueHouseholdIncomeCorrections(NativeArray<Entity> households)
+        {
+            for (int i = 0; i < households.Length; i++)
+            {
+                Entity household = households[i];
+                ulong householdId;
+                if (!_hostIdsByHousehold.TryGetValue(household, out householdId) ||
+                    !_desiredHouseholdEconomies.ContainsKey(householdId)) continue;
+                if (_incomeCorrectionMembers.Add(household))
+                    _incomeCorrectionQueue.Enqueue(household);
+            }
+        }
+
+        /// <summary>
+        /// Restore the host's household income immediately after the local pass that recomputes it
+        /// from this peer's own employment graph, which is deliberately never replicated.
+        /// </summary>
+        internal void CorrectHouseholdIncomeAfterLocalUpdate()
+        {
+            MultiplayerService service = Mod.Service;
+            if (service == null || !service.SimulationSyncReady ||
+                service.Session.Role != SessionRole.Client)
+            {
+                ClearHouseholdIncomeCorrections();
+                return;
+            }
+
+            int examine = _incomeCorrectionQueue.Count < MaxHouseholdIncomeCorrectionsPerFrame
+                ? _incomeCorrectionQueue.Count : MaxHouseholdIncomeCorrectionsPerFrame;
+            for (int i = 0; i < examine; i++)
+            {
+                Entity household;
+                if (!_incomeCorrectionQueue.TryDequeue(out household)) break;
+                _incomeCorrectionMembers.Remove(household);
+                DesiredHouseholdEconomy wanted;
+                Entity property;
+                if (!TryResolveCorrectionTarget(household, out wanted, out property)) continue;
+
+                Household data = EntityManager.GetComponentData<Household>(household);
+                if (data.m_Income == wanted.Income) continue;
+                data.m_Income = wanted.Income;
+                EntityManager.SetComponentData(household, data);
+                _incomeCorrections++;
+            }
+            if (_incomeCorrectionQueue.Count != 0)
+                _incomeDeferred += _incomeCorrectionQueue.Count;
+        }
+
+        internal void ClearHouseholdIncomeCorrections()
+        {
+            Entity discarded;
+            while (_incomeCorrectionQueue.TryDequeue(out discarded)) { }
+            _incomeCorrectionMembers.Clear();
+        }
+
         private bool ApplyHouseholdEconomy(Entity household, Entity property,
             DesiredHouseholdEconomy wanted)
         {
@@ -194,7 +275,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 data.m_ShoppedValuePerDay != wanted.ShoppedValuePerDay ||
                 data.m_ShoppedValueLastDay != wanted.ShoppedValueLastDay ||
                 data.m_LastDayFrameIndex != wanted.LastDayFrameIndex ||
-                data.m_SalaryLastDay != wanted.SalaryLastDay ||
+                data.m_Income != wanted.Income ||
                 data.m_MoneySpendOnBuildingLevelingLastDay !=
                 wanted.MoneySpentOnBuildingLevelingLastDay)
             {
@@ -203,7 +284,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 data.m_ShoppedValuePerDay = wanted.ShoppedValuePerDay;
                 data.m_ShoppedValueLastDay = wanted.ShoppedValueLastDay;
                 data.m_LastDayFrameIndex = wanted.LastDayFrameIndex;
-                data.m_SalaryLastDay = wanted.SalaryLastDay;
+                data.m_Income = wanted.Income;
                 data.m_MoneySpendOnBuildingLevelingLastDay =
                     wanted.MoneySpentOnBuildingLevelingLastDay;
                 EntityManager.SetComponentData(household, data);

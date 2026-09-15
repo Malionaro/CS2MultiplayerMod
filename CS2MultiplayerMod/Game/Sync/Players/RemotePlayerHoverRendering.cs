@@ -53,20 +53,14 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             trail.HoverCount = count;
         }
 
-        private bool HoverVisible(Trail trail, bool culling, bool outlined)
+        // The game's own hover outline is a single global shader colour, so it can say what a
+        // partner is pointing at but never which partner. Everything is drawn here instead.
+        private bool HoverVisible(Trail trail, bool culling)
         {
             for (int i = 0; i < trail.HoverCount; i++)
-                if (Drawn(trail.Hover[i], outlined) && (!culling || ShapeVisible(trail.Hover[i])))
-                    return true;
+                if (!culling || ShapeVisible(trail.Hover[i])) return true;
             return false;
         }
-
-        /// <summary>
-        /// Existing buildings use only native mesh highlights. Unmatched network targets can
-        /// still use a course outline; empty-ground circles and generic building cages are hidden.
-        /// </summary>
-        private static bool Drawn(PlayerHoverShape shape, bool outlined) =>
-            shape.Placement || (!outlined && shape.Kind == PlayerHoverKind.Curve);
 
         /// <summary>How thick a shape at <paramref name="point"/> has to be drawn to read on screen.</summary>
         private float HoverWidth(float3 point) => math.clamp(
@@ -100,15 +94,13 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             return SphereVisible((min + max) * 0.5f, math.length(max - min) * 0.5f + shape.Width * 0.5f + HoverLineWidth);
         }
 
-        private void DrawHover(OverlayRenderSystem.Buffer buffer, Trail trail, Color color, bool culling,
-            bool outlined)
+        private void DrawHover(OverlayRenderSystem.Buffer buffer, Trail trail, Color color, bool culling)
         {
             using (Diagnostics.SyncProfiler.Measure("PartnerHover.Draw"))
             {
                 for (int i = 0; i < trail.HoverCount; i++)
                 {
                     PlayerHoverShape shape = trail.Hover[i];
-                    if (!Drawn(shape, outlined)) continue;
                     if (culling && !ShapeVisible(shape)) continue;
                     float3 a = Vector(shape.A), b = Vector(shape.B), c = Vector(shape.C), d = Vector(shape.D);
                     float line = HoverWidth(a);

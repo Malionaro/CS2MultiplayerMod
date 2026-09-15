@@ -82,8 +82,11 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
         public int AverageTaxRate;
         public int AverageTaxPaid;
 
-        /// <summary>Salary recorded by the host's household behavior pass for the last day.</summary>
-        public int SalaryLastDay;
+        /// <summary>
+        /// Daily household income the host's household behavior pass recomputed. Named
+        /// SalaryLastDay before game 1.6.2; same value, same wire slot.
+        /// </summary>
+        public int Income;
 
         /// <summary>Consumption target produced by the host's household behavior pass.</summary>
         public short ConsumptionPerDay;

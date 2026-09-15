@@ -1,5 +1,5 @@
-// In-memory ECS/tool/render adapters. The production capture, renderer and highlight system
-// are linked unchanged; the installed game supplies its mathematical value types only.
+// In-memory ECS/tool/render adapters. The production capture and renderer are linked
+// unchanged; the installed game supplies its mathematical value types only.
 using Colossal.Mathematics;
 using CS2MultiplayerMod.Core.Protocol.Messages;
 using Unity.Entities;
@@ -76,7 +76,7 @@ namespace Game
         public void Tick() => OnUpdate();
     }
 }
-namespace Game.Common { public struct Deleted { } public struct Highlighted { } public struct BatchesUpdated { } }
+namespace Game.Common { public struct Deleted { } }
 namespace Game.Input { public class InputManager { public static InputManager instance = new(); public bool controlOverWorld = true; } }
 namespace Game.Tools
 {
@@ -126,7 +126,6 @@ namespace Game.Prefabs
 }
 namespace Game.Objects
 {
-    public class SearchSystem { }
     [Flags] public enum GeometryFlags { Circular = 1 }
     public struct Transform { public float3 m_Position; public quaternion m_Rotation; }
     public static class ObjectUtils
@@ -142,25 +141,6 @@ namespace Game.Net
 {
     public struct Curve { public Bezier4x3 m_Bezier; }
     public struct Node { public float3 m_Position; }
-    public struct Aggregated { public Entity m_Aggregate; }
-    public struct AggregateElement { public Entity m_Edge; }
-    public class SearchSystem
-    {
-        public Colossal.Collections.NativeQuadTree<Entity, Colossal.Collections.QuadTreeBoundsXZ> GetNetSearchTree(bool readOnly, out JobHandle deps)
-        { deps = default; return new(); }
-    }
-}
-namespace Colossal.Collections
-{
-    public struct QuadTreeBoundsXZ { public Bounds3 m_Bounds; }
-    public interface INativeQuadTreeIterator<T, B> { void Iterate(B bounds, T item); }
-    public interface IUnsafeQuadTreeIterator<T, B> { }
-    public struct NativeQuadTree<T, B>
-    {
-        public static List<(T Item, B Bounds)> Items = new();
-        public void Iterate<I>(ref I iterator) where I : INativeQuadTreeIterator<T, B>
-        { foreach (var item in Items) iterator.Iterate(item.Bounds, item.Item); }
-    }
 }
 namespace Game.Simulation
 {
@@ -206,40 +186,10 @@ namespace CS2MultiplayerMod.Game.Diagnostics
         public static Scope Measure(string label) => new();
     }
 }
-namespace CS2MultiplayerMod.Game.Sync.Infrastructure
-{
-    public class ObjectSearch
-    {
-        public static List<Entity> Candidates = new();
-        public static int Searches;
-        public ObjectSearch(global::Game.Objects.SearchSystem search) { }
-        public void CollectNear(float3 centre, float radius, NativeList<Entity> results)
-        { Searches++; results.Clear(); foreach (var e in Candidates) results.Add(e); }
-    }
-}
-namespace CS2MultiplayerMod
-{
-    public static class Mod
-    {
-        public static Game.MultiplayerService Service;
-        public static Settings Setting = new();
-    }
-    public class Settings { public bool ShowPartnerMarkers = true; }
-}
-namespace CS2MultiplayerMod.Game
-{
-    public class MultiplayerService
-    {
-        public bool GameplaySyncReady = true;
-        public long NowMs;
-        public List<Sync.Players.RemotePlayer> RemotePlayers = new();
-    }
-}
 namespace CS2MultiplayerMod.Game.Sync.Players
 {
     public class RemotePlayer
     {
-        public int PlayerId;
         public long LastUpdateMs;
         public PlayerHoverShape[] Hover;
     }
@@ -260,14 +210,14 @@ namespace CS2MultiplayerMod.Game.Sync.Players
             public int HoverCount;
         }
         private bool SphereVisible(float3 p, float radius) => true;
-        public List<global::Game.Rendering.OverlayRenderSystem.Draw> Render(PlayerHoverShape shape, bool outlined = false)
+        public List<global::Game.Rendering.OverlayRenderSystem.Draw> Render(PlayerHoverShape shape)
         {
             _hoverTerrain ??= new global::Game.Simulation.TerrainSystem();
             var result = new List<global::Game.Rendering.OverlayRenderSystem.Draw>();
             var buffer = new global::Game.Rendering.OverlayRenderSystem.Buffer { Draws = result };
             var trail = new Trail();
             trail.Hover[0] = shape; trail.HoverCount = 1;
-            DrawHover(buffer, trail, new UnityEngine.Color(1, 1, 1), false, outlined);
+            DrawHover(buffer, trail, new UnityEngine.Color(1, 1, 1), false);
             return result;
         }
         public PlayerHoverShape Ease(PlayerHoverShape previous, PlayerHoverShape next)

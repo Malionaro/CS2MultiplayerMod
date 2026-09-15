@@ -337,7 +337,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     ", forcedCompletions=" + _forcedCompletions + ", prefabCorrections=" +
                     _forcedPrefabCorrections + ", deferredForConstruction=" +
                     _deferredForConstruction + ", economyCorrections=" + _economyCorrections +
-                    "/deferred " + _economyDeferred + ", feeInputs=" + _feeInputCorrections +
+                    "/deferred " + _economyDeferred + ", incomeCorrections=" +
+                    _incomeCorrections + "/deferred " + _incomeDeferred +
+                    ", feeInputs=" + _feeInputCorrections +
                     "/deferred " + _feeInputDeferred + ", pendingMoveIns=" +
                     _pendingMoveIns.Count +
                     ", dirty=" + _dirty.Count + ".");
@@ -356,6 +358,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _forcedCompletions = _forcedPrefabCorrections = _alignedBuildRates = 0;
             _deferredForConstruction = 0;
             _renamedEntities = _economyCorrections = _economyDeferred = 0;
+            _incomeCorrections = _incomeDeferred = 0;
             _feeInputCorrections = _feeInputDeferred = 0;
         }
     }

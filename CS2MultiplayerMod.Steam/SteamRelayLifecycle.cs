@@ -170,11 +170,10 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             public int SendRate;
 
             /// <summary>
-            /// Highest rate this path has carried without complaint. Starts at the ceiling
-            /// because nothing is known yet, which is what makes the first climb a search;
-            /// it survives idle periods so later transfers start from the answer.
+            /// Recovery target retained across idle periods. An unmeasured connection
+            /// starts at the opening rate, so its initial probes are additive.
             /// </summary>
-            public int SafeRate = SendRateCeilingBytesPerSecond;
+            public int SafeRate = SendRateStartBytesPerSecond;
 
             /// <summary>Seconds left holding the current rate after a cut.</summary>
             public int HoldTicks;
@@ -185,7 +184,8 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             /// <summary>Best ping seen on this connection - the baseline congestion is measured against.</summary>
             public int PingFloorMs = int.MaxValue;
 
-            private long _lastOutstanding = -1;
+            private readonly RelaySendFeedback _delivery = new RelaySendFeedback();
+            private long _acceptedBytes;
             private readonly System.Diagnostics.Stopwatch _bulk = new System.Diagnostics.Stopwatch();
             private long _bulkMoved;
 
@@ -213,15 +213,11 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             /// throughput number: Steam's send rate is what we told it to push, not what
             /// arrived.
             /// </summary>
-            public long MeasureGoodput(long outstanding, int intervalMs)
+            public long MeasureGoodput(long outstanding, long intervalMs)
             {
-                long previous = _lastOutstanding;
-                _lastOutstanding = outstanding;
-                if (previous < 0 || outstanding > previous) return 0;
-
-                long moved = previous - outstanding;
+                long moved = _delivery.Sample(Interlocked.Read(ref _acceptedBytes), outstanding);
                 if (_bulk.IsRunning) _bulkMoved += moved;
-                return moved * 1000L / intervalMs;
+                return moved * 1000L / Math.Max(1L, intervalMs);
             }
 
             /// <summary>Start timing a bulk transfer, or let one already running continue.</summary>
@@ -253,6 +249,7 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             {
                 _outbox.Enqueue(frame);
                 Interlocked.Add(ref _queuedBytes, frame.Length);
+                Interlocked.Add(ref _acceptedBytes, frame.Length);
             }
 
             public bool TryPeek(out byte[] frame)

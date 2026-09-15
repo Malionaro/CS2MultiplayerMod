@@ -70,7 +70,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     hash = HashId(hash, household.HouseholdId);
                     hash = hash * 397 ^ (household.Departing ? 1 : 0);
                     hash = hash * 397 ^ household.Rent;
-                    hash = hash * 397 ^ household.SalaryLastDay;
+                    hash = hash * 397 ^ household.Income;
                     hash = hash * 397 ^ (int)household.ShoppedValuePerDay;
                     hash = hash * 397 ^ household.MoneySpentOnBuildingLevelingLastDay;
                     hash = hash * 397 + (household.Citizens != null
@@ -101,7 +101,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     .Append(household.OwnedVehicles != null
                         ? household.OwnedVehicles.Length : 0).Append(" vehicles")
                     .Append("/rent=").Append(household.Rent)
-                    .Append("/income=").Append(household.SalaryLastDay)
+                    .Append("/income=").Append(household.Income)
                     .Append("/upkeep=")
                     .Append(Math.Abs((long)household.MoneySpentOnBuildingLevelingLastDay))
                     .Append("/resourceCost=").Append(household.ShoppedValuePerDay)

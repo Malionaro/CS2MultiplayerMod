@@ -1,4 +1,4 @@
-namespace CS2MultiplayerMod.Core.Diagnostics
+﻿namespace CS2MultiplayerMod.Core.Diagnostics
 {
     /// <summary>
     /// What a log line is about.
@@ -73,5 +73,11 @@ namespace CS2MultiplayerMod.Core.Diagnostics
 
         /// <summary>Frame times and the mod's own main-thread cost, including the per-zone split.</summary>
         Performance,
+
+        /// <summary>
+        /// State belonging to other mods: what was discovered, what the two machines agreed to
+        /// replicate, and what travelled.
+        /// </summary>
+        ModSync,
     }
 }

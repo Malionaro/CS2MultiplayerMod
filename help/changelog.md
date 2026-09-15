@@ -5,10 +5,45 @@ description: "What changed in each release of the mod: new features, sync work a
 
 # Changelog
 
-## Unreleased
+## Version 0.1.7 - 2026-09-15
 
-* Partner markers now show hovered-object outlines and simplified building, road and brush placement previews in each player's colour. The existing Show Partner Markers setting controls these overlays.
-* Hover sharing requires matching protocol versions; all players must update together.
+This update focuses on improving performance, giving players more control over simulation synchronization, reducing unnecessary resyncs, fixing several gameplay synchronization issues, and expanding mod compatibility. It also brings support up to game version 1.6.2f1.
+
+### Performance & Simulation Synchronization
+
+* Added a new option to disable detailed simulation synchronization.
+* This is especially useful for large cities with 100k+ residents, where the additional simulation synchronization workload can become expensive.
+* In testing, detailed simulation synchronization reduced client FPS by roughly 50% and host FPS by roughly 30%.
+* Disabling detailed simulation synchronization returns performance close to normal gameplay levels.
+* Added synchronization for player highlighting and border previews. Partner markers now show hovered-object outlines and simplified building, road and brush placement previews in each player's colour, controlled by the existing Show Partner Markers setting.
+* Moved the "Mods check" disable option into the Advanced tab.
+
+### Synchronization & Stability
+
+* Used your feedback and reported cases to further reduce unnecessary resync triggers.
+* Improved synchronization behavior in several situations where temporary inconsistencies previously caused avoidable resyncs.
+* Fixed the automatic divergence detection incorrectly triggering a full mod resync in some cases.
+* Fixed subway nodes sometimes failing to connect correctly between players.
+* Fixed roads occasionally appearing as dead-end streets after some time despite being connected.
+* Fixed trees causing a resync.
+
+### Mod Support
+
+Added multiplayer compatibility for the following mods:
+
+* Traffic
+* Road Speed Adjuster
+
+### Bug Fixes
+
+* Fixed an issue where the host could not repay loans.
+* Fixed several synchronization-related edge cases reported by players.
+* Improved visibility of UI checkboxes and status indicators.
+
+### Compatibility
+
+* Updated for Cities: Skylines II 1.6.2f1.
+* This release changes the network protocol, so all players must update together. Older builds cannot join a 0.1.7 session.
 
 ## Version 0.1.6.1h1 - 2026-09-03
 

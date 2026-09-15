@@ -59,8 +59,8 @@ namespace CS2MultiplayerMod.Game.Sync.Commands
                     (!household.HasTaxPayer &&
                      (household.UntaxedIncome != 0 || household.AverageTaxRate != 0 ||
                       household.AverageTaxPaid != 0))) return false;
-                if (household.SalaryLastDay < -MaxMoney ||
-                    household.SalaryLastDay > MaxMoney) return false;
+                if (household.Income < -MaxMoney ||
+                    household.Income > MaxMoney) return false;
                 if (household.MoneySpentOnBuildingLevelingLastDay < -MaxMoney ||
                     household.MoneySpentOnBuildingLevelingLastDay > MaxMoney) return false;
                 if (household.Citizens == null ||

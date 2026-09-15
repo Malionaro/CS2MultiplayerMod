@@ -130,7 +130,8 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
         /// </summary>
         private void Govern()
         {
-            if (_govern.ElapsedMilliseconds < GovernIntervalMs) return;
+            long intervalMs = _govern.ElapsedMilliseconds;
+            if (intervalMs < GovernIntervalMs) return;
             _govern.Restart();
 
             bool report = _probe.ElapsedMilliseconds >= ThroughputProbeMs;
@@ -145,8 +146,9 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
                     var lanes = new SteamNetConnectionRealTimeLaneStatus_t();
                     try
                     {
-                        SteamNetworkingSockets.GetConnectionRealTimeStatus(
-                            endpoint.Handle, ref status, 0, ref lanes);
+                        if (SteamNetworkingSockets.GetConnectionRealTimeStatus(
+                            endpoint.Handle, ref status, 0, ref lanes) != EResult.k_EResultOK)
+                            continue;
                     }
                     catch (Exception) { continue; }
 
@@ -154,7 +156,7 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
                                        status.m_cbPendingReliable + status.m_cbSentUnackedReliable;
                     bool bulk = outstanding >= BulkBacklogBytes;
                     if (bulk) endpoint.BeginBulk();
-                    long goodput = endpoint.MeasureGoodput(outstanding, GovernIntervalMs);
+                    long goodput = endpoint.MeasureGoodput(outstanding, intervalMs);
 
                     if (!bulk)
                     {
@@ -215,15 +217,18 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
                         // Below what already held, climb back to it; above it, feel the way
                         // up one step at a time.
                         int rate = endpoint.SendRate;
-                        int next = rate < endpoint.SafeRate
-                            ? Math.Min(endpoint.SafeRate, rate + Math.Max(rate / 6, SendRateStepBytesPerSecond))
-                            : Math.Min(SendRateCeilingBytesPerSecond, rate + SendRateStepBytesPerSecond);
-                        if (next != rate) ApplySendRate(endpoint, next);
+                        if (RelaySendFeedback.CanProbe(goodput, rate))
+                        {
+                            int next = rate < endpoint.SafeRate
+                                ? Math.Min(endpoint.SafeRate, rate + Math.Max(rate / 6, SendRateStepBytesPerSecond))
+                                : Math.Min(SendRateCeilingBytesPerSecond, rate + SendRateStepBytesPerSecond);
+                            if (next != rate) ApplySendRate(endpoint, next);
+                        }
                     }
 
                     if (!report) continue;
                     _log.Detail(LogTopic.Transport, "Relay " + endpoint.Id + " sending: " +
-                        (outstanding / 1024) + " KB left at " + (goodput / 1024) + " KB/s (paced " +
+                        (outstanding / 1024) + " KB buffered at " + (goodput / 1024) + " KB/s (paced " +
                         (endpoint.SendRate / 1024) + " KB/s, held " + (endpoint.SafeRate / 1024) +
                         " KB/s, wire " + ((int)status.m_flOutBytesPerSec / 1024) + " KB/s), ping " +
                         status.m_nPing + " of " + pingBudget + " ms, peer received " +

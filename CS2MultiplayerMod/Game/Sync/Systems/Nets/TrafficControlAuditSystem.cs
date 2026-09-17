@@ -65,6 +65,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private EntityQuery _liveNodes;
         private bool _seeded;
         private long _bypassTotal;
+        private long _bypassSuppressed;
         private long _bypassReported;
         private long _lastSummaryMs;
         private long _nextPruneMs;
@@ -102,6 +103,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (_observed.Count > 0) _observed.Clear();
                     _seeded = false;
                     _bypassTotal = 0;
+                    _bypassSuppressed = 0;
                     _bypassReported = 0;
                     _lastSummaryMs = 0;
                     _nextPruneMs = 0;
@@ -156,6 +158,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < entities.Length; i++)
                 {
                     Entity entity = entities[i];
+                    if (!EntityManager.Exists(entity)) continue;
                     Observed current = Read(entity, now);
 
                     Observed known;
@@ -176,9 +179,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     {
                         // Known path: NetUpgradeSyncSystem owns this edit. Silence the
                         // node while the native pipeline re-initializes runtime state.
-                        current.SuppressUntilMs = now + SettleGraceMs;
-                        current.LastBypassLogMs = known.LastBypassLogMs;
-                        _observed[entity] = current;
+                        _observed[entity] = CarrySuppression(current, known, now + SettleGraceMs);
                         continue;
                     }
 
@@ -190,9 +191,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     {
                         // Unrelated Updated (neighbour edit, passing traffic) - keep the
                         // settle suppression already stored, refresh the rest.
-                        current.SuppressUntilMs = known.SuppressUntilMs;
-                        current.LastBypassLogMs = known.LastBypassLogMs;
-                        _observed[entity] = current;
+                        _observed[entity] = CarrySuppression(current, known, known.SuppressUntilMs);
                         continue;
                     }
 
@@ -200,21 +199,21 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     {
                         // Native re-init after a known upgrade (Apply strips TrafficLights
                         // and the game rebuilds it) - settling, not a bypass.
-                        current.SuppressUntilMs = known.SuppressUntilMs;
-                        current.LastBypassLogMs = known.LastBypassLogMs;
-                        _observed[entity] = current;
+                        _observed[entity] = CarrySuppression(current, known, known.SuppressUntilMs);
                         continue;
                     }
 
-                    current.SuppressUntilMs = known.SuppressUntilMs;
-                    current.LastBypassLogMs = known.LastBypassLogMs;
-                    _observed[entity] = current;
+                    _observed[entity] = CarrySuppression(current, known, known.SuppressUntilMs);
 
                     // 0 means "never logged": without the guard the first bypass of a
                     // session started within 60 s of the service clock would be
                     // throttled away and never counted, faking a quiet audit.
                     if (known.LastBypassLogMs != 0 &&
-                        now - known.LastBypassLogMs < BypassLogCooldownMs) continue;
+                        now - known.LastBypassLogMs < BypassLogCooldownMs)
+                    {
+                        _bypassSuppressed++;
+                        continue;
+                    }
 
                     _bypassTotal++;
 
@@ -243,6 +242,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             {
                 entities.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Store a refreshed snapshot while keeping the settle suppression and the
+        /// log throttle of the previous observation. One helper for the four
+        /// cache-update sites so the two preserved fields cannot drift apart again.
+        /// </summary>
+        private static Observed CarrySuppression(Observed current, Observed known, long suppressUntilMs)
+        {
+            current.SuppressUntilMs = suppressUntilMs;
+            current.LastBypassLogMs = known.LastBypassLogMs;
+            return current;
         }
 
         private Observed Read(Entity entity, long now)
@@ -290,7 +301,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _lastSummaryMs = now;
             _bypassReported = _bypassTotal;
             SyncLog.Detail(LogTopic.Nets, "TrafficControlAudit: " + _bypassTotal +
-                " bypass-style traffic change(s) seen this session (audit only - " +
+                " bypass-style traffic change(s) seen this session (" + _bypassSuppressed +
+                " further repeat(s) throttled, audit only - " +
                 "if this stays at 0, the upgrade path covers all traffic control).");
         }
     }

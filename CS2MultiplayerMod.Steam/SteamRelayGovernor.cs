@@ -127,6 +127,11 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
         /// the limit directly instead of feeling for it 25% at a time. Both readings
         /// describe a window several seconds old, hence the hold after every cut - without
         /// it the same congestion is punished repeatedly and the rate walks to the floor.
+        ///
+        /// The hold alone did not cover it. A transfer was seen falling 1790 -> 1479 -> 983 ->
+        /// 676 KB/s over three cuts whose own ticks each delivered 99% of their pace, on a path
+        /// carrying 1.7 MB/s. So a complaint the current rate is delivering through is treated
+        /// as the tail of congestion already past: it holds the rate rather than cutting it.
         /// </summary>
         private void Govern()
         {
@@ -190,12 +195,13 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
 
                     bool queueing = pingKnown && status.m_nPing > pingBudget;
                     bool losing = quality >= 0f && quality < HealthyRemoteQuality;
+                    bool delivering = RelaySendFeedback.IsDelivering(goodput, endpoint.SendRate, DeliveredShare);
 
                     if (endpoint.HoldTicks > 0)
                     {
                         endpoint.HoldTicks--;
                     }
-                    else if (queueing || losing)
+                    else if ((queueing || losing) && !delivering)
                     {
                         if (++endpoint.Strikes >= StrikesBeforeBackoff)
                         {
@@ -214,11 +220,13 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
                     {
                         endpoint.Strikes = 0;
 
+                        // A complaint the current rate is delivering through is stale, so it
+                        // holds rather than cuts - but it is not grounds to climb either.
                         // Below what already held, climb back to it; above it, feel the way
                         // up one step at a time.
-                        int rate = endpoint.SendRate;
-                        if (RelaySendFeedback.CanProbe(goodput, rate))
+                        if (!queueing && !losing)
                         {
+                            int rate = endpoint.SendRate;
                             int next = rate < endpoint.SafeRate
                                 ? Math.Min(endpoint.SafeRate, rate + Math.Max(rate / 6, SendRateStepBytesPerSecond))
                                 : Math.Min(SendRateCeilingBytesPerSecond, rate + SendRateStepBytesPerSecond);

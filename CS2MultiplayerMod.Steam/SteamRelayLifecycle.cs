@@ -170,10 +170,11 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             public int SendRate;
 
             /// <summary>
-            /// Recovery target retained across idle periods. An unmeasured connection
-            /// starts at the opening rate, so its initial probes are additive.
+            /// Highest rate this path has carried without complaint. Starts at the ceiling
+            /// because nothing is known yet, which is what makes the first climb a search;
+            /// it survives idle periods so later transfers start from the answer.
             /// </summary>
-            public int SafeRate = SendRateStartBytesPerSecond;
+            public int SafeRate = SendRateCeilingBytesPerSecond;
 
             /// <summary>Seconds left holding the current rate after a cut.</summary>
             public int HoldTicks;

@@ -70,6 +70,14 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
         private const float HealthyRemoteQuality = 0.90f;
 
         /// <summary>
+        /// Share of the paced rate the peer has to be acknowledging for a complaint to be read
+        /// as stale rather than current. Quality and ping both describe a window seconds old, so
+        /// a rate that is delivering in full right now is being judged on congestion that is
+        /// already over - and cutting it is what walks a working transfer down to the floor.
+        /// </summary>
+        private const float DeliveredShare = 0.9f;
+
+        /// <summary>
         /// Floor on a single congestion-driven cut. A quality reading describes a window
         /// several seconds old, so one sample must not be able to gut the rate - but it is
         /// paired with <see cref="StrikesBeforeBackoff"/>, and a complaint confirmed twice

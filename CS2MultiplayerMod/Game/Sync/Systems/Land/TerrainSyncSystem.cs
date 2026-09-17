@@ -453,6 +453,13 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 {
                     Brush brush = EntityManager.GetComponentData<Brush>(entities[i]);
 
+                    // Object/vegetation brushes use the same transient Brush component for their
+                    // visual footprint, but they do not terraform. Sending those markers as
+                    // terrain samples made the peer reject hundreds of unusable commands while
+                    // the actual trees travelled separately.
+                    if (brush.m_Tool == Entity.Null || !EntityManager.Exists(brush.m_Tool) ||
+                        !EntityManager.HasComponent<TerraformingData>(brush.m_Tool)) continue;
+
                     string toolName = _prefabSystem.GetPrefabName(brush.m_Tool);
                     if (string.IsNullOrEmpty(toolName)) { _dropSendNoToolName++; continue; }
                     string brushName = _prefabSystem.GetPrefabName(

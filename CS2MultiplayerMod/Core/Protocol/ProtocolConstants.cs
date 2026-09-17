@@ -219,7 +219,9 @@
         // would drop the connection over state it simply predates, so the bump keeps that
         // disagreement at the handshake where it can be explained.
         // v66 adds bounded display-only hover geometry to player presence updates.
-        public const int ProtocolVersion = 67;
+        // v68 batches one brush frame so dense tree strokes do not overflow or trickle in.
+        // Object-brush display markers are also excluded from terrain synchronization.
+        public const int ProtocolVersion = 68;
 
         /// <summary>
         /// Hard cap on a single payload, guarding against corrupt length prefixes.

@@ -87,6 +87,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             if (!TryRealizeBlockedNativeObject(now)) return;
 
             _rzFrameSpawned = 0;
+            _rzFrameBatchedObjects = 0;
             _rzFrameDuplicates = 0;
             _rzRealizedThisFrame.Clear();
             try
@@ -122,10 +123,23 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void DrainIncoming(MultiplayerSession session, long now)
         {
             SimulationCommandMessage message;
-            while (_rzFrameSpawned < MaxRealizePerFrame && TryTakeNextObjectMessage(out message))
+            while (TryTakeNextObjectMessage(out message))
             {
                 // Our own placement coming back to us — already built locally.
                 if (message.OriginPlayerId == session.LocalPlayerId) continue;
+
+                if (message.CommandId == ObjectPlacementBatchCommand.Id)
+                {
+                    if (TryRealizeObjectPlacementBatch(message, now)) continue;
+                    _nativeObjectReplayPrefix.Insert(0, message);
+                    break;
+                }
+
+                if (_rzFrameSpawned >= MaxRealizePerFrame)
+                {
+                    _nativeObjectReplayPrefix.Insert(0, message);
+                    break;
+                }
 
                 if (message.CommandId == ObjectToolOperationCommand.Id ||
                     message.CommandId == AssetStampCommand.Id)
@@ -277,9 +291,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 _rzFrameSpawned++;
                 _rzRealizedThisFrame.Add((prefab, position, command.RandomSeed, rotation,
                     command.AttachKind));
-                SyncLog.Detail(LogTopic.Buildings, "BuildSync realize: spawned '" +
-                    command.PrefabName + "' from player " + originPlayerId + " at (" +
-                    position.x.ToString("F1") + "," + position.z.ToString("F1") + ").");
+                if (!_suppressBatchedObjectDetail)
+                    SyncLog.Detail(LogTopic.Buildings, "BuildSync realize: spawned '" +
+                        command.PrefabName + "' from player " + originPlayerId + " at (" +
+                        position.x.ToString("F1") + "," + position.z.ToString("F1") + ").");
             }
             catch (System.Exception ex)
             {

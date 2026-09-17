@@ -37,6 +37,8 @@ const LOC = {
     hostAddress: "CS2MP.UI.HostAddress",
     port: "CS2MP.UI.Port",
     password: "CS2MP.UI.Password",
+    requireApproval: "CS2MP.UI.RequireApproval",
+    simulationSync: "CS2MP.UI.SimulationSync",
     join: "CS2MP.UI.Join",
     disconnect: "CS2MP.UI.Disconnect",
     closeSession: "CS2MP.UI.CloseSession",
@@ -62,6 +64,8 @@ const isHost$ = bindValue<boolean>(GROUP, "isHost", false);
 const savedGames$ = bindValue<unknown[]>("menu", "saves", []);
 const multiplayerMenuActive$ = bindValue<boolean>(GROUP, "multiplayerMenuActive", false);
 const hostConnection$ = bindValue<string>(GROUP, "hostConnection", CONNECTION_RELAY);
+const requireApproval$ = bindValue<boolean>(GROUP, "requireApproval", true);
+const simulationSync$ = bindValue<boolean>(GROUP, "simulationSync", true);
 const joinCode$ = bindValue<string>(GROUP, "joinCode", "");
 const relayAvailable$ = bindValue<boolean>(GROUP, "relayAvailable", false);
 // False on copies of the game that ship no Steam library (Microsoft Store / Game
@@ -310,6 +314,44 @@ const styles: Record<string, CSSProperties> = {
     connectionSpacer: {
         height: "12rem",
     },
+    hostOptions: {
+        display: "flex",
+        alignItems: "center",
+        marginTop: "14rem",
+        paddingTop: "14rem",
+        borderTop: "1rem solid rgba(157, 193, 222, 0.22)",
+    },
+    hostOption: {
+        flex: "1 1 0%",
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+        cursor: "pointer",
+    },
+    hostOptionLabel: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: "12rem",
+        fontSize: "16rem",
+        color: "#9dc1de",
+        textTransform: "uppercase",
+    },
+    toggleBox: {
+        width: "24rem",
+        height: "24rem",
+        flexShrink: 0,
+        borderRadius: "3rem",
+        backgroundColor: "rgba(0, 0, 0, 0.35)",
+        border: "1rem solid rgba(157, 193, 222, 0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    toggleCheck: {
+        width: "15rem",
+        height: "15rem",
+        filter: "brightness(0) invert(1)",
+    },
     dropdownToggle: {
         minWidth: "260rem",
     },
@@ -418,6 +460,19 @@ const ChoiceTile = ({ focusKey, icon, label, disabled, onSelect }: ChoiceTilePro
     </Button>
 );
 
+const HostOption = ({ label, value, onChange }: {
+    label: string;
+    value: boolean;
+    onChange: (value: boolean) => void;
+}) => (
+    <div style={styles.hostOption} onClick={() => onChange(!value)}>
+        <div style={styles.hostOptionLabel}>{label}</div>
+        <div style={styles.toggleBox}>
+            {value ? <img src="Media/Glyphs/Checkmark.svg" style={styles.toggleCheck} /> : null}
+        </div>
+    </div>
+);
+
 /**
  * Host connection picker: relay (default) or a direct port. In relay mode the code
  * players need is shown right here, because that is the only thing they have to be
@@ -430,6 +485,8 @@ const ConnectionPicker = () => {
     const relayAvailable = useValue(relayAvailable$);
     const relaySupported = useValue(relaySupported$);
     const relayReason = useValue(relayUnavailableReason$);
+    const requireApproval = useValue(requireApproval$);
+    const simulationSync = useValue(simulationSync$);
 
     const relay = relaySupported && mode !== CONNECTION_DIRECT;
 
@@ -463,6 +520,19 @@ const ConnectionPicker = () => {
                         ? `${t(LOC.joinCodeHint, "Send this code to your friends. They pick Steam Relay on their Join screen and enter it.")} ${t(LOC.joinCodeSelectHint, "Click the code to select it, then press Ctrl+C.")}`
                         : `${t(LOC.relayUnavailableHint, "Steam is not available right now, so relay hosting cannot start. Use a direct connection instead.")}${relayReason ? ` (${relayReason})` : ""}`
                     : t(LOC.directHint, "Players connect to your address and port. Needs the port forwarded on your router.")}
+            </div>
+            <div style={styles.hostOptions}>
+                <HostOption
+                    label={t(LOC.requireApproval, "Approve Players")}
+                    value={requireApproval}
+                    onChange={(value) => trigger(GROUP, "setRequireApproval", value)}
+                />
+                <div style={{ width: "28rem", flexShrink: 0 }} />
+                <HostOption
+                    label={t(LOC.simulationSync, "Simulation Sync")}
+                    value={simulationSync}
+                    onChange={(value) => trigger(GROUP, "setSimulationSync", value)}
+                />
             </div>
         </div>
         </div>

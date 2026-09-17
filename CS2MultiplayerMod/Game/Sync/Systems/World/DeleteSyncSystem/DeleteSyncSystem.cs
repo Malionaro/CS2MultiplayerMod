@@ -162,7 +162,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             });
 
             _observer = SyncObserverBinding.Bind(
-                () => new CommandObserver(_incoming, ObjectDeleteCommand.Id, NetDeleteCommand.Id), DrainQueue);
+                () => new CommandObserver(_incoming, ObjectDeleteCommand.Id,
+                        ObjectDeleteBatchCommand.Id, NetDeleteCommand.Id)
+                    {
+                        MaxBodyBytes = ObjectDeleteBatchCommand.MaxEncodedBytes,
+                    },
+                DrainQueue);
         }
 
         protected override void OnDestroy()
@@ -264,6 +269,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (message.CommandId == ObjectDeleteCommand.Id)
                         (objects ?? (objects = new List<(ObjectDeleteCommand, long)>()))
                             .Add((ObjectDeleteCommand.Decode(message.Body), freshDeadline));
+                    else if (message.CommandId == ObjectDeleteBatchCommand.Id)
+                        AppendObjectDeleteBatch(ObjectDeleteBatchCommand.Decode(message.Body),
+                            freshDeadline, ref objects);
                     else if (message.CommandId == NetDeleteCommand.Id)
                     {
                         if (netBusy)

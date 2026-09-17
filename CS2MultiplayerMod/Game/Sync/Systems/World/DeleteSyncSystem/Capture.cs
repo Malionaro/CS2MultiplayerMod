@@ -23,8 +23,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             // object/sub-net/area graph, and the receiver's generator reproduces its implicit
             // clear/split side effects. Do not turn that transaction output into a second command.
             BuildSyncSystem buildSync = World.GetExistingSystemManaged<BuildSyncSystem>();
-            if ((buildSync != null && (buildSync.NativeLifecycleCapturedThisFrame ||
-                                       buildSync.LocalObjectLifecycleAppliedThisFrame)) ||
+            if ((buildSync != null && ObjectBrushCapture.SuppressDeletes(
+                    buildSync.NativeLifecycleCapturedThisFrame,
+                    buildSync.LocalObjectLifecycleAppliedThisFrame,
+                    buildSync.LocalObjectBrushAppliedThisFrame)) ||
                 (_netSync != null && _netSync.DidCommitObjectGraphThisFrame)) return;
 
             CollectToolDeleteOriginals();
@@ -39,6 +41,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             bool ownedUpgrades)
         {
             if (query.IsEmptyIgnoreFilter) return;
+            if (!ownedUpgrades && TrySendObjectBrushDeletes(session, now, query)) return;
 
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
             try

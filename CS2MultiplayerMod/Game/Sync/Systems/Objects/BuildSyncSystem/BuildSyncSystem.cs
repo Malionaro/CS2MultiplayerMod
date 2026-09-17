@@ -194,7 +194,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             _observer = SyncObserverBinding.Bind(
                 () => new CommandObserver(_incoming,
-                        ObjectPlacementCommand.Id, ObjectToolOperationCommand.Id,
+                        ObjectPlacementCommand.Id, ObjectPlacementBatchCommand.Id,
+                        ObjectToolOperationCommand.Id,
                         AssetStampCommand.Id)
                     {
                         MaxBodyBytes = ObjectToolOperationCommand.MaxEncodedBytes,
@@ -238,6 +239,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _hasLastPlacementControlPoint = false;
             _hasLastStampControlPoint = false;
             _localLifecycleApplyThisFrame = false;
+            LocalObjectBrushAppliedThisFrame = false;
             _partialPlacementRecoveryRequested = false;
             DeferForTerrain = false;
             _refused.Clear();
@@ -376,6 +378,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _localObjectToolRanThisFrame = activeLifecycleToolRan || applying;
             _localObjectApplyThisFrame = applying;
             _localLifecycleApplyThisFrame = _localObjectApplyThisFrame;
+            LocalObjectBrushAppliedThisFrame = applying &&
+                lifecycleTool is ObjectToolSystem objectTool &&
+                objectTool.actualMode == ObjectToolSystem.Mode.Brush;
 
             if (objectToOwnedAreaHandoff && applying)
                 SyncLog.Trace(LogTopic.Buildings,
@@ -393,6 +398,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// also be captured as bulldozes.
         /// </summary>
         public bool LocalObjectLifecycleAppliedThisFrame => _localLifecycleApplyThisFrame;
+
+        /// <summary>
+        /// Brush removals are explicit edits, not a building footprint's derived side effects.
+        /// Keep their delete fallback unless the native transaction was actually published.
+        /// </summary>
+        internal bool LocalObjectBrushAppliedThisFrame { get; private set; }
 
         /// <summary>
         /// Called by <see cref="SyncRealizeSystem"/> during ToolUpdate. Definitions realize
@@ -521,6 +532,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                 // Only the reduced compatibility fallback still depends on the tool Apply sample.
                 if (!_localObjectApplyThisFrame) return;
+                if (TryCaptureObjectBrushPlacements(session, localCreated)) return;
 
                 for (int i = 0; i < localCreated.Count; i++)
                 {

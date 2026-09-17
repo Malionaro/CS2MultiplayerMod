@@ -25,6 +25,16 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         public const byte Id = 10;
         public byte ChannelId => Id;
 
+        /// <summary>
+        /// Statistic parameter holding the event-accumulated lifetime total. All
+        /// counters synced here are lifetime totals at this parameter, which is why
+        /// the generic delta mechanism applies to every entry unchanged.
+        /// </summary>
+        private const int LifetimeParameter = 0;
+
+        /// <summary>Upper bound for entries in one snapshot (the table holds 20).</summary>
+        private const int MaxEntriesPerSnapshot = 64;
+
         private static readonly StatisticType[] Synced =
         {
             StatisticType.DeathRate,          // "deaths" — cumulative count of citizen deaths
@@ -77,7 +87,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
                 for (int i = 0; i < Synced.Length; i++)
                 {
                     writer.WriteByte((byte)Synced[i]);
-                    writer.WriteLong(stats.GetStatisticValueLong(Synced[i], 0));
+                    writer.WriteLong(stats.GetStatisticValueLong(Synced[i], LifetimeParameter));
                 }
                 return true;
             }
@@ -92,13 +102,21 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         {
             CityStatisticsSystem stats = Resolve(em);
             int count = reader.ReadByte();
+            if (count < 0 || count > MaxEntriesPerSnapshot)
+            {
+                WarnOnce("apply", new System.IO.InvalidDataException(
+                    "Implausible statistics entry count: " + count + "."));
+                return;
+            }
             try
             {
                 for (int i = 0; i < count; i++)
                 {
-                    var type = (StatisticType)reader.ReadByte();
+                    byte rawType = reader.ReadByte();
                     long hostValue = reader.ReadLong();
-                    long localValue = stats.GetStatisticValueLong(type, 0);
+                    if (!System.Enum.IsDefined(typeof(StatisticType), (int)rawType)) continue;
+                    var type = (StatisticType)rawType;
+                    long localValue = stats.GetStatisticValueLong(type, LifetimeParameter);
 
                     // Where this counter is headed: the value it will hold once the events already
                     // queued are processed. Once the local value has caught up to that target the
@@ -116,7 +134,7 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
                     queue.Enqueue(new StatisticsEvent
                     {
                         m_Statistic = type,
-                        m_Parameter = 0,
+                        m_Parameter = LifetimeParameter,
                         m_Change = delta,
                     });
                     _inFlightTarget[type] = hostValue;

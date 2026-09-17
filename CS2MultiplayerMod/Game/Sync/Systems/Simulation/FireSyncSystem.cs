@@ -59,6 +59,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private EntityQuery _liveTargets;
         private CommandObserver _observer;
         private long _skippedTargets;
+        private readonly Dictionary<string, long> _skipsByReason = new Dictionary<string, long>();
 
         protected override void OnCreate()
         {
@@ -194,6 +195,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < events.Length; i++)
                 {
                     Entity entity = events[i];
+                    if (!EntityManager.Exists(entity)) continue;
                     global::Game.Events.Ignite ignite =
                         EntityManager.GetComponentData<global::Game.Events.Ignite>(entity);
                     Entity target = ignite.m_Target;
@@ -266,6 +268,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private void Skip(string reason)
         {
             _skippedTargets++;
+            long perReason;
+            if (!_skipsByReason.TryGetValue(reason, out perReason)) perReason = 0;
+            _skipsByReason[reason] = perReason + 1;
+            // Waldbrand nights produce hundreds of untargeted/vehicle skips: log the
+            // first and then every 50th so the line stays evidence, not spam.
+            if (_skippedTargets != 1 && _skippedTargets % 50 != 0) return;
             SyncLog.Detail(LogTopic.City, "FireSync: not replicating ignite with " + reason +
                 " (total skipped this session: " + _skippedTargets + ").");
         }
@@ -293,8 +301,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < candidates.Length; i++)
                 {
                     Entity candidate = candidates[i];
+                    if (!EntityManager.Exists(candidate)) continue;
+                    if (!EntityManager.HasComponent<PrefabRef>(candidate)) continue;
                     if (EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab != prefab)
                         continue;
+                    if (!EntityManager.HasComponent<global::Game.Objects.Transform>(candidate)) continue;
                     float3 position = EntityManager
                         .GetComponentData<global::Game.Objects.Transform>(candidate).m_Position;
                     float distSq = math.distancesq(position, target);

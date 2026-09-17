@@ -88,7 +88,7 @@ First: both players have to use the same connection type. See
 
 ## Mod Version Issues
 
-Check that you have the same mod version as the people you are trying to play with. Update the mod via Paradox Mods (PDXMods) to the newest version.
+Check that you have the same mod version as the people you are trying to play with. Your version is shown at the top of Options → CS2 Multiplayer Mod → General. Update the mod via Paradox Mods (PDXMods) to the newest version.
 
 Still having issues? Remove the mod on PDXMods. Restart the game. Reinstall the mod on PDXMods. Restart the game.
 

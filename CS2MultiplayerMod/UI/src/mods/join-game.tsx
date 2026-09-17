@@ -15,6 +15,7 @@ import { DisclaimerModal, disclaimerAccepted$ } from "mods/disclaimer";
 import { MultiplayerJoinLoadingScreen } from "mods/loading-screen";
 import { OtherModsBanner, useModsBlocked } from "mods/mods-banner";
 import { MULTIPLAYER_BLUE } from "mods/multiplayer-theme";
+import { RESYNC_ALLOW, RESYNC_LOC, ResyncPolicyDropdown } from "mods/resync-policy";
 import { VersionWarningBanner } from "mods/version-banner";
 
 // Binding group shared with MultiplayerUISystem on the C# side. The field values
@@ -38,11 +39,13 @@ const LOC = {
     port: "CS2MP.UI.Port",
     password: "CS2MP.UI.Password",
     requireApproval: "CS2MP.UI.RequireApproval",
+    autoApproveSteamFriends: "CS2MP.UI.AutoApproveSteamFriends",
     simulationSync: "CS2MP.UI.SimulationSync",
     join: "CS2MP.UI.Join",
     disconnect: "CS2MP.UI.Disconnect",
     closeSession: "CS2MP.UI.CloseSession",
     ...CONNECTION_LOC,
+    ...RESYNC_LOC,
 };
 
 // translate() is typed string | null; this narrows it to the English fallback so
@@ -65,6 +68,8 @@ const savedGames$ = bindValue<unknown[]>("menu", "saves", []);
 const multiplayerMenuActive$ = bindValue<boolean>(GROUP, "multiplayerMenuActive", false);
 const hostConnection$ = bindValue<string>(GROUP, "hostConnection", CONNECTION_RELAY);
 const requireApproval$ = bindValue<boolean>(GROUP, "requireApproval", true);
+const autoApproveSteamFriends$ = bindValue<boolean>(GROUP, "autoApproveSteamFriends", false);
+const resyncPolicy$ = bindValue<string>(GROUP, "resyncPolicy", RESYNC_ALLOW);
 const simulationSync$ = bindValue<boolean>(GROUP, "simulationSync", true);
 const joinCode$ = bindValue<string>(GROUP, "joinCode", "");
 const relayAvailable$ = bindValue<boolean>(GROUP, "relayAvailable", false);
@@ -328,10 +333,16 @@ const styles: Record<string, CSSProperties> = {
         alignItems: "center",
         cursor: "pointer",
     },
-    hostOptionLabel: {
-        flex: 1,
+    hostSetting: {
+        flex: "1 1 0%",
         minWidth: 0,
-        paddingRight: "12rem",
+        display: "flex",
+        alignItems: "center",
+    },
+    hostOptionLabel: {
+        flex: "0 1 auto",
+        minWidth: 0,
+        paddingRight: "10rem",
         fontSize: "16rem",
         color: "#9dc1de",
         textTransform: "uppercase",
@@ -486,6 +497,8 @@ const ConnectionPicker = () => {
     const relaySupported = useValue(relaySupported$);
     const relayReason = useValue(relayUnavailableReason$);
     const requireApproval = useValue(requireApproval$);
+    const autoApproveSteamFriends = useValue(autoApproveSteamFriends$);
+    const resyncPolicy = useValue(resyncPolicy$);
     const simulationSync = useValue(simulationSync$);
 
     const relay = relaySupported && mode !== CONNECTION_DIRECT;
@@ -533,6 +546,26 @@ const ConnectionPicker = () => {
                     value={simulationSync}
                     onChange={(value) => trigger(GROUP, "setSimulationSync", value)}
                 />
+            </div>
+            <div style={styles.hostOptions}>
+                {relay && requireApproval ? (
+                    <>
+                        <HostOption
+                            label={t(LOC.autoApproveSteamFriends, "Auto-Approve Steam Friends")}
+                            value={autoApproveSteamFriends}
+                            onChange={(value) => trigger(GROUP, "setAutoApproveSteamFriends", value)}
+                        />
+                        <div style={{ width: "28rem", flexShrink: 0 }} />
+                    </>
+                ) : null}
+                <div style={styles.hostSetting}>
+                    <div style={styles.hostOptionLabel}>{t(LOC.policy, "Client Resyncs")}</div>
+                    <ResyncPolicyDropdown
+                        value={resyncPolicy}
+                        style={{ minWidth: "150rem" }}
+                        onChange={(value) => trigger(GROUP, "setResyncPolicy", value)}
+                    />
+                </div>
             </div>
         </div>
         </div>

@@ -22,6 +22,11 @@ namespace CS2MultiplayerMod.Core.Session
         /// host to approve or decline it by hand. Never overlaps <see cref="Handshaked"/>.</summary>
         public bool AwaitingApproval;
 
+        /// <summary>Host-side: a client world-sync request waiting for an explicit host answer.</summary>
+        public bool AwaitingResyncApproval;
+        public string PendingResyncReason;
+        public bool PendingResyncAutomatic;
+
         /// <summary>Local monotonic timestamp (Unix ms) of the last byte received from this peer.</summary>
         public long LastSeenUnixMs;
 

@@ -15,7 +15,7 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
     // The send-rate governor is in SteamRelayGovernor.cs, connection bookkeeping in
     // SteamRelayConnections.cs, framing and the send/receive path in SteamRelayIo.cs, and
     // shutdown plus the per-peer Endpoint in SteamRelayLifecycle.cs.
-    public sealed partial class SteamRelayTransport : ITransport
+    public sealed partial class SteamRelayTransport : ITransport, IPlatformFriendLookup
     {
         /// <summary>
         /// Payload bytes per relay message. Steam refuses a reliable send above

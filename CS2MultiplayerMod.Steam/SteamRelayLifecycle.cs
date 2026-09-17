@@ -47,6 +47,30 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
         }
 
         /// <summary>
+        /// Steam authenticated the remote identity as part of the relay connection, so this
+        /// relationship check is safe to use for host approval rules. A missing endpoint or
+        /// unavailable friends API is never treated as trusted.
+        /// </summary>
+        public bool IsPlatformFriend(ConnectionId connection)
+        {
+            Endpoint endpoint;
+            lock (_gate)
+            {
+                if (!_byId.TryGetValue(connection.Value, out endpoint)) return false;
+            }
+
+            try
+            {
+                return endpoint.SteamId != 0 && SteamFriends.HasFriend(
+                    new CSteamID(endpoint.SteamId), EFriendFlags.k_EFriendFlagImmediate);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Empty: the relay authenticates and encrypts every connection itself, so there
         /// is no certificate for the password proof to bind to.
         /// </summary>
@@ -158,6 +182,7 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
         {
             public readonly ConnectionId Id;
             public readonly HSteamNetConnection Handle;
+            public readonly ulong SteamId;
             public readonly string RemoteAddress;
 
             /// <summary>True once <see cref="TransportEventType.Connected"/> has been published.</summary>
@@ -204,6 +229,7 @@ namespace CS2MultiplayerMod.Core.Networking.Steam
             {
                 Id = id;
                 Handle = handle;
+                SteamId = steamId;
                 // The session uses this for ban tracking and logging only. A Steam ID is a
                 // steadier key for that than an address behind the relay.
                 RemoteAddress = "steam:" + steamId;

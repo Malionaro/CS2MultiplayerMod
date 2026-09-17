@@ -10,6 +10,7 @@ import {
     ConnectionSegmented,
     JoinCodeDisplay,
 } from "mods/connection-picker";
+import { RESYNC_LOC, ResyncPolicySegmented } from "mods/resync-policy";
 import {
     CSSProperties,
     MouseEvent as ReactMouseEvent,
@@ -71,9 +72,13 @@ const LOC = {
     cancelKick: "CS2MP.UI.CancelKick",
     tryThis: "CS2MP.UI.TryThis",
     requireApproval: "CS2MP.UI.RequireApproval",
+    autoApproveSteamFriends: "CS2MP.UI.AutoApproveSteamFriends",
     simulationSync: "CS2MP.UI.SimulationSync",
+    ...RESYNC_LOC,
     joinRequestTitle: "CS2MP.UI.JoinRequestTitle",
     joinRequestBody: "CS2MP.UI.JoinRequestBody",
+    resyncRequestTitle: "CS2MP.UI.ResyncRequestTitle",
+    resyncRequestBody: "CS2MP.UI.ResyncRequestBody",
     accept: "CS2MP.UI.Accept",
     decline: "CS2MP.UI.Decline",
     playerName: "CS2MP.UI.PlayerName",
@@ -120,9 +125,12 @@ const hostPassword$ = bindValue<string>(GROUP, "hostPassword", "");
 const maxPlayers$ = bindValue<string>(GROUP, "maxPlayers", "8");
 const lanOnly$ = bindValue<boolean>(GROUP, "lanOnly", false);
 const requireApproval$ = bindValue<boolean>(GROUP, "requireApproval", true);
+const autoApproveSteamFriends$ = bindValue<boolean>(GROUP, "autoApproveSteamFriends", false);
 const simulationSync$ = bindValue<boolean>(GROUP, "simulationSync", true);
+const resyncPolicy$ = bindValue<string>(GROUP, "resyncPolicy", "allow");
 const playerList$ = bindValue<string>(GROUP, "playerList", "[]");
 const pendingJoins$ = bindValue<string>(GROUP, "pendingJoins", "[]");
+const pendingResyncs$ = bindValue<string>(GROUP, "pendingResyncs", "[]");
 const canSaveClientWorld$ = bindValue<boolean>(GROUP, "canSaveClientWorld", false);
 const clientWorldSaveStatus$ = bindValue<string>(GROUP, "clientWorldSaveStatus", "idle");
 const clientWorldSaveName$ = bindValue<string>(GROUP, "clientWorldSaveName", "");
@@ -146,6 +154,13 @@ interface PendingJoin {
     name: string;
 }
 
+interface PendingResync {
+    id: number;
+    name: string;
+    reason: string;
+    automatic: boolean;
+}
+
 const parseChatLog = (json: string): ChatEntry[] => {
     try {
         const parsed = JSON.parse(json);
@@ -165,6 +180,15 @@ const parsePlayerList = (json: string): PlayerEntry[] => {
 };
 
 const parsePendingJoins = (json: string): PendingJoin[] => {
+    try {
+        const parsed = JSON.parse(json);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
+
+const parsePendingResyncs = (json: string): PendingResync[] => {
     try {
         const parsed = JSON.parse(json);
         return Array.isArray(parsed) ? parsed : [];
@@ -911,7 +935,9 @@ const SettingsFields = () => {
     const maxPlayers = useValue(maxPlayers$);
     const lanOnly = useValue(lanOnly$);
     const requireApproval = useValue(requireApproval$);
+    const autoApproveSteamFriends = useValue(autoApproveSteamFriends$);
     const simulationSync = useValue(simulationSync$);
+    const resyncPolicy = useValue(resyncPolicy$);
     const hostConnection = useValue(hostConnection$);
     const sessionUsesRelay = useValue(sessionUsesRelay$);
     const relaySupported = useValue(relaySupported$);
@@ -983,6 +1009,22 @@ const SettingsFields = () => {
                 disabled={inSession}
                 onChange={(v) => trigger(GROUP, "setRequireApproval", v)}
             />
+            {relay && requireApproval && (
+                <HubToggle
+                    label={t(LOC.autoApproveSteamFriends, "Auto-Approve Steam Friends")}
+                    value={autoApproveSteamFriends}
+                    disabled={inSession}
+                    onChange={(v) => trigger(GROUP, "setAutoApproveSteamFriends", v)}
+                />
+            )}
+            <div style={styles.row}>
+                <div style={styles.label}>{t(LOC.policy, "Client Resync Requests")}</div>
+                <ResyncPolicySegmented
+                    value={resyncPolicy}
+                    disabled={inSession}
+                    onChange={(v) => trigger(GROUP, "setResyncPolicy", v)}
+                />
+            </div>
             {/* The host answers for the whole session, so this is fixed once one is
                 running - a client sees the host's answer, not its own. */}
             <HubToggle
@@ -1643,23 +1685,28 @@ const ToastList = ({ toasts }: { toasts: ChatEntry[] }) => (
     </div>
 );
 
-// Host-only prompt shown whenever one or more players are waiting to be let in.
+// Host-only prompts shown whenever players are waiting to join or resync.
 // It floats at the top of the screen (not a full-screen blocker) so the host can
-// keep playing and admit each join when ready. Always mounted with the right-menu
+// keep playing and answer each request when ready. Always mounted with the right-menu
 // button, so it appears even when the hub panel is closed.
-const JoinRequestModal = () => {
+const ApprovalRequestModals = () => {
     const t = useT();
     const isHost = useValue(isHost$);
-    const pendingJson = useValue(pendingJoins$);
-    const pending = useMemo(() => parsePendingJoins(pendingJson), [pendingJson]);
+    const pendingJoinsJson = useValue(pendingJoins$);
+    const pendingResyncsJson = useValue(pendingResyncs$);
+    const pendingJoins = useMemo(() => parsePendingJoins(pendingJoinsJson), [pendingJoinsJson]);
+    const pendingResyncs = useMemo(
+        () => parsePendingResyncs(pendingResyncsJson),
+        [pendingResyncsJson],
+    );
 
-    if (!isHost || pending.length === 0) return null;
+    if (!isHost || (pendingJoins.length === 0 && pendingResyncs.length === 0)) return null;
 
     return (
         <Portal>
             <div style={styles.joinAnchor}>
-                {pending.map((join) => (
-                    <InputActionBarrier key={join.id}>
+                {pendingJoins.map((join) => (
+                    <InputActionBarrier key={`join-${join.id}`}>
                         <AutoNavigationScope
                             debugName="CS2MP Join Request"
                             direction={NavigationDirection.Horizontal}
@@ -1683,6 +1730,42 @@ const JoinRequestModal = () => {
                                         focusKey="decline"
                                         style={styles.joinCardButton}
                                         onSelect={() => trigger(GROUP, "declineJoin", join.id)}>
+                                        {t(LOC.decline, "Decline")}
+                                    </Button>
+                                </div>
+                            </div>
+                        </AutoNavigationScope>
+                    </InputActionBarrier>
+                ))}
+                {pendingResyncs.map((request) => (
+                    <InputActionBarrier key={`resync-${request.id}`}>
+                        <AutoNavigationScope
+                            debugName="CS2MP Resync Request"
+                            direction={NavigationDirection.Horizontal}
+                            initialFocused="allow"
+                            allowLooping>
+                            <div style={styles.joinCard} onMouseDown={(e) => e.stopPropagation()}>
+                                <div style={styles.joinCardTitle}>
+                                    {t(LOC.resyncRequestTitle, "World Sync Request")}
+                                </div>
+                                <div style={styles.joinCardBody}>
+                                    {t(LOC.resyncRequestBody, "{0} requested a world sync: {1}")
+                                        .replace("{0}", request.name)
+                                        .replace("{1}", request.reason)}
+                                </div>
+                                <div style={styles.joinCardButtons}>
+                                    <Button
+                                        variant="primary"
+                                        focusKey="allow"
+                                        style={styles.joinCardButton}
+                                        onSelect={() => trigger(GROUP, "approveResync", request.id)}>
+                                        {t(LOC.accept, "Accept")}
+                                    </Button>
+                                    <Button
+                                        variant="flat"
+                                        focusKey="decline"
+                                        style={styles.joinCardButton}
+                                        onSelect={() => trigger(GROUP, "declineResync", request.id)}>
                                         {t(LOC.decline, "Decline")}
                                     </Button>
                                 </div>
@@ -1746,7 +1829,7 @@ export const MultiplayerRightMenuButton = () => {
 
     return (
         <>
-            <JoinRequestModal />
+            <ApprovalRequestModals />
             <Tooltip tooltip={title} direction="left">
                 <div style={styles.buttonWrap} className={rmMenu ? rmMenu.item : undefined}>
                     <Button

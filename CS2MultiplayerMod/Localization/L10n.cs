@@ -69,12 +69,20 @@ namespace CS2MultiplayerMod.Localization
             public const string UiSendingWorld = "CS2MP.UI.SendingWorld";
             public const string UiTryThis = "CS2MP.UI.TryThis";
             public const string UiRequireApproval = "CS2MP.UI.RequireApproval";
+            public const string UiAutoApproveSteamFriends = "CS2MP.UI.AutoApproveSteamFriends";
+            public const string UiResyncPolicy = "CS2MP.UI.ResyncPolicy";
+            public const string UiResyncAllow = "CS2MP.UI.ResyncAllow";
+            public const string UiResyncApproval = "CS2MP.UI.ResyncApproval";
+            public const string UiResyncHostOnly = "CS2MP.UI.ResyncHostOnly";
             public const string UiSimulationSync = "CS2MP.UI.SimulationSync";
             public const string UiJoinRequestTitle = "CS2MP.UI.JoinRequestTitle";
             // {0} = joining player's name.
             public const string UiJoinRequestBody = "CS2MP.UI.JoinRequestBody";
             public const string UiAccept = "CS2MP.UI.Accept";
             public const string UiDecline = "CS2MP.UI.Decline";
+            public const string UiResyncRequestTitle = "CS2MP.UI.ResyncRequestTitle";
+            public const string UiResyncRequestBody = "CS2MP.UI.ResyncRequestBody";
+            public const string UiAutoContinueMilestone = "CS2MP.UI.AutoContinueMilestone";
 
             // -- One-time disclaimer gate (shown before first host/join) --
             public const string UiDisclaimerTitle = "CS2MP.UI.DisclaimerTitle";
@@ -86,6 +94,11 @@ namespace CS2MultiplayerMod.Localization
             public const string UiVersionWarningTitle = "CS2MP.UI.VersionWarningTitle";
             // {0} = running build, {1} = comma-separated tested builds.
             public const string UiVersionWarning = "CS2MP.UI.VersionWarning";
+
+            // -- Version row on the options screen, locally built copies only: a released
+            // build shows the plain version, which needs no format.
+            // {0} = mod version, {1} = build stamp, {2} = protocol version.
+            public const string VersionLineDev = "CS2MP.UI.VersionLineDev";
 
             // -- Other-mods block (host and join are both refused while any is live) --
             public const string UiModsBlockedTitle = "CS2MP.UI.ModsBlockedTitle";
@@ -102,33 +115,11 @@ namespace CS2MultiplayerMod.Localization
             public const string UiJoiningTitle = "CS2MP.UI.JoiningTitle";
             public const string UiLoadingHint = "CS2MP.UI.LoadingHint";
 
-            // -- Session status (options screen Status group + join dialog indicator) --
-            public const string StatusDisabled = "CS2MP.Status.Disabled";
+            // -- Session status (join dialog indicator, hub panel, loading overlay) --
             public const string StatusOffline = "CS2MP.Status.Offline";
-            public const string RoleHost = "CS2MP.Status.RoleHost";
-            public const string RoleClient = "CS2MP.Status.RoleClient";
             public const string StateConnecting = "CS2MP.Status.Connecting";
             public const string StateConnected = "CS2MP.Status.Connected";
-            public const string StateFaulted = "CS2MP.Status.Faulted";
-            public const string OfflineFault = "CS2MP.Status.OfflineFault";
-            public const string PlayersNone = "CS2MP.Status.PlayersNone";
-            public const string PlayersClients = "CS2MP.Status.PlayersClients";
-            public const string ConnectedToHost = "CS2MP.Status.ConnectedToHost";
-            public const string NoSession = "CS2MP.Status.NoSession";
-            public const string AccessPassword = "CS2MP.Status.AccessPassword";
-            public const string AccessOpen = "CS2MP.Status.AccessOpen";
-            public const string ExposureInternet = "CS2MP.Status.ExposureInternet";
-            public const string ExposureLan = "CS2MP.Status.ExposureLan";
-            public const string ExposureRelay = "CS2MP.Status.ExposureRelay";
-            public const string ExposureRelayClient = "CS2MP.Status.ExposureRelayClient";
-            public const string ExposureForwarding = "CS2MP.Status.ExposureForwarding";
-            public const string ExposureForwarded = "CS2MP.Status.ExposureForwarded";
-            public const string ExposureForwardedAt = "CS2MP.Status.ExposureForwardedAt";
-            public const string ExposureForwardManually = "CS2MP.Status.ExposureForwardManually";
-            public const string WorldNone = "CS2MP.Status.WorldNone";
-            public const string WorldHosting = "CS2MP.Status.WorldHosting";
             public const string WorldMapProgress = "CS2MP.Status.WorldMapProgress";
-            public const string WorldLoaded = "CS2MP.Status.WorldLoaded";
             public const string PhaseWaitingForMap = "CS2MP.Status.WaitingForMap";
             public const string PhaseLoadingMap = "CS2MP.Status.LoadingMap";
             public const string PhaseSynchronizing = "CS2MP.Status.Synchronizing";

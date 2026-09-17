@@ -33,6 +33,16 @@
         <PropertyGroup Condition="'$(PublishedModVersion)' != ''">
             <InformationalVersion>$(PublishedModVersion)</InformationalVersion>
         </PropertyGroup>
+        <!--Anything but Release is a local build, and gets the second it was compiled appended as
+        SemVer build metadata. That is the number the options screen and the log show for a dev
+        build, and the reason it is the time and not a counter is that it needs no state in the
+        repo. It changes every build, so a Debug build always recompiles this project - which is
+        the point: the number proves the running game has the code that was just compiled. A
+        Release build stamps the plain published version, so a public build shows clean numbers,
+        and nothing here reaches the wire (the handshake compares the release part only).-->
+        <PropertyGroup Condition="'$(Configuration)' != 'Release' and '$(InformationalVersion)' != ''">
+            <InformationalVersion>$(InformationalVersion)+dev.$([System.DateTime]::Now.ToString("yyMMdd-HHmmss"))</InformationalVersion>
+        </PropertyGroup>
     </Target>
 
     <!--Imports must be after PropertyGroup block-->

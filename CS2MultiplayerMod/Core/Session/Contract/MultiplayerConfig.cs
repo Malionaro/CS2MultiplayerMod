@@ -2,6 +2,13 @@ using CS2MultiplayerMod.Core.Networking;
 
 namespace CS2MultiplayerMod.Core.Session
 {
+    public enum ClientResyncPolicy
+    {
+        Allow = 0,
+        RequireApproval = 1,
+        HostOnly = 2,
+    }
+
     /// <summary>Immutable parameters used to start a host or join a session.</summary>
     public sealed class MultiplayerConfig
     {
@@ -48,6 +55,16 @@ namespace CS2MultiplayerMod.Core.Session
         /// </summary>
         public readonly bool RequireJoinApproval;
 
+        /// <summary>
+        /// Host only. While manual join approval is enabled, authenticated friends on the
+        /// platform transport bypass the prompt. Direct connections have no trusted account
+        /// identity and therefore always remain subject to manual approval.
+        /// </summary>
+        public readonly bool AutoApprovePlatformFriends;
+
+        /// <summary>Host only. Controls what happens when a client asks for a world resync.</summary>
+        public readonly ClientResyncPolicy ClientResyncPolicy;
+
         /// <summary>Mod build identifier, normally compared strictly during the handshake.</summary>
         public readonly string ModVersion;
 
@@ -83,7 +100,9 @@ namespace CS2MultiplayerMod.Core.Session
                                  bool requireJoinApproval = false,
                                  TransportMode transport = TransportMode.Direct, string joinCode = "",
                                  bool ignoreModCompatibilityChecks = false,
-                                 bool simulationSync = true)
+                                 bool simulationSync = true,
+                                 bool autoApprovePlatformFriends = false,
+                                 ClientResyncPolicy clientResyncPolicy = ClientResyncPolicy.Allow)
         {
             Transport = transport;
             JoinCode = joinCode ?? string.Empty;
@@ -100,6 +119,8 @@ namespace CS2MultiplayerMod.Core.Session
             DlcList = dlcList ?? System.Array.Empty<string>();
             RequireJoinApproval = requireJoinApproval;
             SimulationSync = simulationSync;
+            AutoApprovePlatformFriends = autoApprovePlatformFriends;
+            ClientResyncPolicy = clientResyncPolicy;
         }
     }
 }

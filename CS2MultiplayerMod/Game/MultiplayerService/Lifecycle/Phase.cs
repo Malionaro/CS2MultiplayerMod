@@ -50,6 +50,7 @@ namespace CS2MultiplayerMod.Game
             PumpClientWorldSave();
             PumpDeferredReceivedMap();
             RefreshPendingJoinsJson();
+            RefreshPendingResyncsJson();
             Diagnostics.ResyncReport queuedReport;
             if (_session.Status == SessionStatus.Connected &&
                 SyncInbox.TryTakeResyncRequest(out queuedReport))
@@ -214,6 +215,9 @@ namespace CS2MultiplayerMod.Game
                 (config.Transport == TransportMode.SteamRelay ? " joinCode=" + RelayProvider.LocalJoinCode : " port=" + config.Port) +
                 " lanOnly=" + config.LanOnly + " password=" +
                 (config.Password.Length > 0 ? "SET" : "NONE") + " maxPlayers=" + config.MaxPlayers +
+                " approval=" + config.RequireJoinApproval +
+                " autoApproveFriends=" + config.AutoApprovePlatformFriends +
+                " clientResyncs=" + config.ClientResyncPolicy +
                 " name='" + config.PlayerName + "'" + ModVersionText(config) + " game=" +
                 config.GameVersion + " dlcs=[" + string.Join(", ", config.DlcList) + "]" +
                 LocalModsText(settings));
@@ -373,7 +377,11 @@ namespace CS2MultiplayerMod.Game
                 transport: transport,
                 joinCode: relay && !hosting ? joinCode : "",
                 ignoreModCompatibilityChecks: settings.IgnoreModCompatibilityChecks,
-                simulationSync: settings.SimulationSync);
+                simulationSync: settings.SimulationSync,
+                autoApprovePlatformFriends: hosting && relay && settings.AutoApproveSteamFriends,
+                clientResyncPolicy: hosting
+                    ? settings.SelectedClientResyncPolicy()
+                    : Core.Session.ClientResyncPolicy.Allow);
         }
 
     }

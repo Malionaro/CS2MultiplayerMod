@@ -2,6 +2,7 @@ import { trigger } from "cs2/api";
 import { ModRegistrar } from "cs2/modding";
 import { extendCreditsScreen, MultiplayerMenuButton } from "mods/join-game";
 import { MultiplayerRightMenuButton } from "mods/mp-hub";
+import { MilestoneAutoDismiss } from "mods/milestone-auto-dismiss";
 import { GameJoinLoadingScreen, MenuJoinLoadingScreen } from "mods/loading-screen";
 import {
     GameSessionDisconnectConfirmation,
@@ -36,6 +37,7 @@ const register: ModRegistrar = (moduleRegistry) => {
     try {
         moduleRegistry.append("Game", GameJoinLoadingScreen);
         moduleRegistry.append("Game", GameSessionDisconnectConfirmation);
+        moduleRegistry.append("Game", MilestoneAutoDismiss);
     } catch (e) {
         console.warn("[cs2mp] in-game connection view could not be registered.", e);
     }

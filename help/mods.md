@@ -1,26 +1,32 @@
 ---
 title: Mods and compatibility
-description: "How other mods affect multiplayer, why hosting and joining are blocked while they are loaded, and what is planned."
+description: "Which mods are officially supported, how unsupported mods affect multiplayer, and how the compatibility check works."
 ---
 
 # Mods and compatibility
 
 ## Official mod support
 
-No mods are officially supported. Playing with mods is experimental. Any mod that adds
-gameplay functionality will not work, and you may get desyncs, crashes or a corrupted city.
+The following mods are officially supported, verified and maintained by the CS2 Multiplayer
+Mod developers. They do not show the other-mod warning and do not block hosting or joining,
+even when **Ignore Mod Compatibility Checks** is off.
 
-Proper compatibility with some mods is planned for later versions. It needs work on both
-sides: the multiplayer mod and the other mod have to cooperate to expose what changed.
+| Mod | Status |
+| --- | --- |
+| [Traffic](https://mods.paradoxplaza.com/mods/80095/) | Fully supported |
+| [Road Speed Adjuster](https://mods.paradoxplaza.com/mods/125866/) | Fully supported |
+| [Anarchy](https://mods.paradoxplaza.com/mods/74604/) | Fully supported |
+| [Find It](https://mods.paradoxplaza.com/mods/77240/) | Fully supported |
+| [Asset Icon Library](https://mods.paradoxplaza.com/mods/79634/) | Fully supported |
 
 ---
 
 ## Other mods are blocked
 
-Hosting and joining are blocked while any other mod is active, and a host rejects players
-running a different CS2 Multiplayer Mod build. Nothing in the synchronization layer accounts
-for a third party changing prefabs, tools or the simulation, so one extra mod on one machine
-is enough to desync the session or crash the other player.
+Hosting and joining are blocked while any unsupported mod is active, and a host rejects
+players running a different CS2 Multiplayer Mod build. Nothing in the synchronization layer
+accounts for an unverified third party changing prefabs, tools or the simulation, so one
+unsupported mod on one machine is enough to desync the session or crash the other player.
 
 The check reads your active Paradox Mods playset. That includes asset-only mods such as
 maps, prop packs and prefab packs, which load no code at all. Mods in your other playsets
@@ -34,8 +40,8 @@ are not enabled for this run and are ignored.
 
 To clear the block:
 
-1. Disable every mod except CS2 Multiplayer Mod in your active playset. A playset that
-   contains only this mod is the safest setup.
+1. Disable every unsupported mod in your active playset. A playset that contains only CS2
+   Multiplayer Mod and the officially supported mods above is allowed.
 2. Go back to the game and wait a few seconds for the banner to clear.
 3. If the banner says the mods are still loaded, restart the game.
 
@@ -65,24 +71,11 @@ player decides whether their own extra mods are allowed locally.
 
 ---
 
-## Mod compatibility list
+## Other mod compatibility
 
-Some display-only or UI-only mods may work. This list is not comprehensive - contributions
-and testing are welcome.
-
-Updated `2026-08-06` for version `v0.1.3`.
-[Current mod version](https://github.com/Rollocraft/CS2MultiplayerMod/blob/master/CS2MultiplayerMod/Properties/PublishConfiguration.xml#L31).
-
-### Possibly compatible
-
-- Anarchy-style mods that do the same thing as the developer options
-
-### Incompatible
-
-Every mod that adds functionality, for example:
-
-- Road Builder
-- Traffic mods
+Mods not listed under official support are unverified and remain blocked by default. This
+includes mods that may appear to be display-only or UI-only: without verification, the
+multiplayer developers cannot guarantee that they will not change synchronized state.
 
 ---
 

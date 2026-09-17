@@ -9,9 +9,7 @@
 	<LongDescription>
 		Play Cities: Skylines II together.
 
-		CS2 Multiplayer is a client-server multiplayer mod that allows multiple players to build and manage the same city in real time.
-		**Mods currently do not work in Multiplayer!**
-		The mod is currently experimental. Please back up your saves and expect bugs, missing features or crashes while development continues.
+		Cities: Skylines 2 Multiplayer is a client-server multiplayer mod that allows multiple players to build and manage the same city in real time.
 		To host a game, start a multiplayer world, optionally protect it with a password, and share your IP address with your friends or share ur steamcode.
 		If you encounter any issues or have feedback, our Discord server ( https://discord.gg/KFZTW2YSJt ) is the preferred place to get support and report bugs.
 		This project is not affiliated with, endorsed by, or sponsored by Colossal Order, Paradox Interactive, or Iceflake Studio.	
@@ -28,7 +26,7 @@
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1.7" />
+	<ModVersion Value="1.7.1" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.6.*" />
 	<!--Dependency for the mod, can be set multiple times-->
@@ -37,8 +35,14 @@
 	<RequiredDLC Value="" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-		Version 0.1.7
-		Added Traffic Mod support aswell as 1.6.2f1 support
+		Version 1.7.1
+		Added the full server options to the normal Host Game flow, including player approval, simulation sync, Steam-friend auto-approval, and client resync policy controls.
+		Added host approval prompts for client resync requests.
+		Added batched synchronization for dense tree and prop brush placement and deletion.
+		Added synchronization support for durable state used by compatible third-party mods and improved residential household income correction.
+		Improved Steam Relay transfer-rate recovery under stale congestion reports.
+		Milestone popups now close automatically after 10 seconds in multiplayer so an AFK player cannot hold the session paused.
+		The Options page now shows the mod version on its General tab, and the read-only status rows there were removed.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="discord" Url="https://discord.gg/KFZTW2YSJt" />

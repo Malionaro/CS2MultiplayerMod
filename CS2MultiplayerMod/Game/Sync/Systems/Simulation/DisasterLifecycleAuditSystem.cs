@@ -29,8 +29,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
     /// started, where it is once a minute while it runs, and how it ended (natural end versus
     /// early drop, actual lived frames versus the commanded duration). That is the exact input
     /// a follow-up Verlauf sync would need: which path each side took and where they parted.
-    /// It only runs while the City log topic is on; with the topic off it resets and re-seeds
-    /// on re-enable, so a troubleshooting audit never costs a normal session a frame.
+    /// It only runs while the City log topic is on; with the topic off it suspends
+    /// tracking and re-seeds on re-enable (session totals kept), so a troubleshooting
+    /// audit never costs a normal session a frame.
     ///
     /// If the heartbeat lines show both machines walking the same path and every event ends on
     /// time, the start-only replication covers everything and no follow-up sync is needed. If
@@ -55,6 +56,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             public bool Damaging;
             public long StartFrame;
             public long EndFrame;
+            public bool HasCommandedEnd;
             public long FirstSeenFrame;
             public long LastHeartbeatMs;
             public float FirstX, FirstY, FirstZ;
@@ -135,11 +137,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
                 // Troubleshooting-only audit, so it stays off with the topic: every line
                 // below is a gated Detail, and SyncLog asks callers not to compute what
-                // nobody reads. Reset (not pause) so a later re-enable re-seeds instead
-                // of flushing stale end lines for events that died while unwatched.
+                // nobody reads. Suspend (not reset) so a later re-enable re-seeds instead
+                // of flushing stale end lines for events that died while unwatched,
+                // while the session totals stay intact.
                 if (!SyncLog.IsEnabled(LogTopic.City))
                 {
-                    ResetState();
+                    SuspendTracking();
                     return;
                 }
 
@@ -161,19 +164,29 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         }
 
         /// <summary>
-        /// Forget everything: session over, or the City topic went off. The next update
-        /// re-seeds from the live world, so nothing stale is ever reported.
+        /// Forget everything: the session ended. The next session re-seeds from its
+        /// own downloaded world, so nothing stale is ever reported.
         /// </summary>
         private void ResetState()
         {
-            if (_tracked.Count > 0) _tracked.Clear();
-            _seeded = false;
+            SuspendTracking();
             _startedTotal = 0;
             _endedTotal = 0;
             _earlyTotal = 0;
             _reportedStarted = 0;
             _reportedEnded = 0;
             _lastSummaryMs = 0;
+        }
+
+        /// <summary>
+        /// Drop the live table but keep the session totals: the City topic went off.
+        /// A later re-enable re-seeds instead of flushing stale end lines for events
+        /// that died while unwatched, without rewriting the session history.
+        /// </summary>
+        private void SuspendTracking()
+        {
+            if (_tracked.Count > 0) _tracked.Clear();
+            _seeded = false;
             _nextReapMs = 0;
         }
 
@@ -242,10 +255,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     _startedTotal++;
 
                     string name = tracked.PrefabName ?? "unknown prefab";
+                    string lasting = tracked.HasCommandedEnd
+                        ? "lasting " + (tracked.EndFrame - tracked.StartFrame) + " frame(s)"
+                        : "lasting unknown frame(s)";
                     string detail = "'" + name + "' (" + kind + ") at " +
                         tracked.FirstX + ", " + tracked.FirstY + ", " + tracked.FirstZ +
-                        ", warning " + (tracked.StartFrame - frame) + " frame(s), lasting " +
-                        (tracked.EndFrame - tracked.StartFrame) + " frame(s)";
+                        ", warning " + (tracked.StartFrame - frame) + " frame(s), " + lasting;
                     if (tracked.Damaging)
                         SyncLog.Detail(LogTopic.City, "DisasterLifecycleAudit: tracking " + detail + ".");
                     else
@@ -292,6 +307,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     EntityManager.GetComponentData<global::Game.Events.Duration>(entity);
                 tracked.StartFrame = duration.m_StartFrame;
                 tracked.EndFrame = duration.m_EndFrame;
+                tracked.HasCommandedEnd = true;
             }
 
             if (kind == DisasterKind.WeatherPhenomenon &&
@@ -409,14 +425,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 _endedTotal++;
 
                 long lived = frame - tracked.FirstSeenFrame;
-                long commanded = tracked.EndFrame - tracked.StartFrame;
-                bool early = frame < tracked.EndFrame;
+                bool early = tracked.HasCommandedEnd && frame < tracked.EndFrame;
                 if (early) _earlyTotal++;
 
                 string name = tracked.PrefabName ?? "unknown prefab";
+                string commanded = tracked.HasCommandedEnd
+                    ? "commanded " + (tracked.EndFrame - tracked.StartFrame)
+                    : "commanded duration unknown";
                 SyncLog.Detail(LogTopic.City, "DisasterLifecycleAudit: '" + name + "' (" +
                     tracked.Kind + ") ended " + (early ? "early" : "on time") +
-                    " after " + lived + " frame(s), commanded " + commanded +
+                    " after " + lived + " frame(s), " + commanded +
                     " (audit only - nothing sent).");
             }
         }

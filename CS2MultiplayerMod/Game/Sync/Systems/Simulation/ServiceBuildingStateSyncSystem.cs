@@ -44,6 +44,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         /// <summary>Building match tolerance, squared metres (2 m): buildings do not move.</summary>
         private const float MatchTolSq = 4f;
 
+        /// <summary>Dead-entity prune interval (30 s, same as the audits).</summary>
+        private const long PruneIntervalMs = 30000;
+
         private readonly ConcurrentQueue<SimulationCommandMessage> _incoming =
             new ConcurrentQueue<SimulationCommandMessage>();
         private readonly Dictionary<Entity, byte> _lastSeen = new Dictionary<Entity, byte>();
@@ -58,6 +61,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private CommandObserver _observer;
         private bool _seeded;
         private int _scanBucket;
+        private long _nextPruneMs;
 
         protected override void OnCreate()
         {
@@ -110,6 +114,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (_retry.Count > 0) _retry.Clear();
                     _guard.Clear();
                     _seeded = false;
+                    _nextPruneMs = 0;
                     return;
                 }
 
@@ -120,11 +125,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 {
                     SeedCache();
                     _seeded = true;
+                    _nextPruneMs = now + PruneIntervalMs;
                     return;
                 }
 
                 ScanBucket(session, now);
-                PruneDead();
+                PruneDead(now);
             }
         }
 
@@ -245,6 +251,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     }
                     if (current == known) continue;
 
+                    // Re-check: the building may have been demolished between the
+                    // covered check above and these resolving reads.
+                    if (!EntityManager.Exists(entity)) continue;
                     Entity prefab = EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
                     string prefabName = _prefabIndex.NameOf(prefab);
                     float3 position = EntityManager.GetComponentData<Transform>(entity).m_Position;
@@ -286,9 +295,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             }
         }
 
-        private void PruneDead()
+        private void PruneDead(long now)
         {
-            if (_lastSeen.Count == 0) return;
+            if (now < _nextPruneMs || _lastSeen.Count == 0) return;
+            _nextPruneMs = now + PruneIntervalMs;
             List<Entity> dead = null;
             foreach (Entity entity in _lastSeen.Keys)
             {
@@ -353,8 +363,11 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                 for (int i = 0; i < candidates.Length; i++)
                 {
                     Entity candidate = candidates[i];
+                    if (!EntityManager.Exists(candidate)) continue;
+                    if (!EntityManager.HasComponent<PrefabRef>(candidate)) continue;
                     if (EntityManager.GetComponentData<PrefabRef>(candidate).m_Prefab != prefab)
                         continue;
+                    if (!EntityManager.HasComponent<Transform>(candidate)) continue;
                     float3 position = EntityManager
                         .GetComponentData<Transform>(candidate).m_Position;
                     float distSq = math.distancesq(position, target);

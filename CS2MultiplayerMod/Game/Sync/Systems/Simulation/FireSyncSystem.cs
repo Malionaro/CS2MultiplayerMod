@@ -271,7 +271,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             long perReason;
             if (!_skipsByReason.TryGetValue(reason, out perReason)) perReason = 0;
             _skipsByReason[reason] = perReason + 1;
-            // Waldbrand nights produce hundreds of untargeted/vehicle skips: log the
+            // Wildfire nights produce hundreds of untargeted/vehicle skips: log the
             // first and then every 50th so the line stays evidence, not spam.
             if (_skippedTargets != 1 && _skippedTargets % 50 != 0) return;
             SyncLog.Detail(LogTopic.City, "FireSync: not replicating ignite with " + reason +

@@ -12,6 +12,7 @@
         /// at the handshake instead of diverging silently.
         /// v69 adds command id 33, fire ignition: one command per building or tree
         /// fire start, carrying the target's prefab and position plus the ignition intensity.
+        /// Only starts travel; the burn, the spread and the extinguish run locally on every
         /// machine, the same start-only shape as disaster events. A v68 peer does not know
         /// id 33, so the bump refuses it at the handshake instead of dropping its fires silently.
         /// v65 adds the barrier-only Begin stage: a join streams its world only to whoever joined,

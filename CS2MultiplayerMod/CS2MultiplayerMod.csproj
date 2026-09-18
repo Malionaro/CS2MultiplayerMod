@@ -165,6 +165,26 @@
     file imports Mod.targets above, so the ordering holds.-->
     <Target Name="BuildUI" AfterTargets="DeployWIP" Condition="'$(NeedBuild)'=='true'">
         <Exec Command="npm run build" WorkingDirectory="$(ProjectDir)UI"/>
+        <Error Condition="!Exists('$(DeployDir)\$(TargetName).mjs')"
+               Text="The multiplayer UI bundle was not generated at $(DeployDir)\$(TargetName).mjs."/>
+        <!-- Keep the UI beside the DLL in bin as well as in the live/publish folder.
+        Manual release archives are made from bin, and omitting this file removes the
+        main-menu button, in-game button, connection overlays and milestone countdown. -->
+        <ItemGroup>
+            <MultiplayerUiOutput Include="$(DeployDir)\$(TargetName).mjs"/>
+            <MultiplayerUiOutput Include="$(DeployDir)\$(TargetName).mjs.LICENSE.txt"
+                                 Condition="Exists('$(DeployDir)\$(TargetName).mjs.LICENSE.txt')"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(MultiplayerUiOutput)" DestinationFolder="$(OutDir)"/>
+    </Target>
+
+    <!-- Never upload an incomplete folder even when the toolchain's Update command
+    deliberately skips Build/DeployWIP and publishes the existing deployment. -->
+    <Target Name="ValidatePublishedUI" BeforeTargets="Publish">
+        <Error Condition="!Exists('$(DeployDir)\$(TargetName).dll')"
+               Text="The publish folder has not been built. Build the mod before publishing."/>
+        <Error Condition="!Exists('$(DeployDir)\$(TargetName).mjs')"
+               Text="The publish folder is missing $(TargetName).mjs. Build the mod before publishing."/>
     </Target>
 
     <!--The Burst stubs are compiled through the toolchain's cache directory and keep its

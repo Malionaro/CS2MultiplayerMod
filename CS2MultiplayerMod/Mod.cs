@@ -217,6 +217,11 @@ namespace CS2MultiplayerMod
             // state) now stays in sync even while a player is paused. Channel capture is
             // gated to ~1 Hz internally, so the render-rate phase adds no extra traffic.
             updateSystem.UpdateAt<Game.Sync.Systems.CityStateSyncSystem>(SystemUpdatePhase.UIUpdate);
+            // Remote milestone popups use the game's native MilestoneReachedEvent so the full
+            // vanilla screen and our countdown appear. DevTreeSystem also treats that event as
+            // a reward; remove only the points from our marked presentation event immediately.
+            updateSystem.UpdateAfter<Game.Sync.Systems.RemoteMilestoneRewardCorrectionSystem,
+                global::Game.City.DevTreeSystem>(SystemUpdatePhase.GameSimulation);
             // Service fee accounting has producers on both sides of ServiceFeeSystem: transit and
             // parking arrive before it, utility sales/trade after it. Empty the redundant client
             // queue at both boundaries; the host's absolute collected records are reinstalled by

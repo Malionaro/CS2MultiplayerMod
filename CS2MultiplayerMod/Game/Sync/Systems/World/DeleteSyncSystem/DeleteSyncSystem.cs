@@ -336,5 +336,17 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
         private static string DeleteKey(string prefabName, float3 position) =>
             "del|" + ReplicationGuard.Key(prefabName, position);
 
+        /// <summary>
+        /// Prevent a directly-realized remote tree/prop deletion from being captured as a new
+        /// local bulldoze at ModificationEnd. The key is exact to the victim, so unrelated local
+        /// deletes in the same frame are still published.
+        /// </summary>
+        internal void MarkRemoteObjectDelete(string prefabName, float3 position, long now)
+        {
+            if (!string.IsNullOrEmpty(prefabName))
+                _guard.Mark(DeleteKey(prefabName, position), now);
+        }
+
+
     }
 }

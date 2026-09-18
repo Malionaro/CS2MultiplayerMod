@@ -1,24 +1,35 @@
-import { bindValue, useValue } from "cs2/api";
-import { milestone } from "cs2/bindings";
+import { bindValue, trigger, useValue } from "cs2/api";
 import { useLocalization } from "cs2/l10n";
 import { Portal } from "cs2/ui";
 import { CSSProperties, useEffect, useState } from "react";
 
 const inSession$ = bindValue<boolean>("cs2mp", "inSession", false);
+const unlockedMilestone$ = bindValue<{ index: number; version: number }>(
+    "milestone",
+    "unlockedMilestone",
+    { index: 0, version: 0 },
+);
 const AUTO_DISMISS_MS = 10_000;
 
 const styles: Record<string, CSSProperties> = {
     anchor: {
         position: "fixed",
-        left: "50%",
-        bottom: "78rem",
-        width: "330rem",
-        maxWidth: "70%",
-        transform: "translateX(-50%)",
-        zIndex: 10003,
+        left: 0,
+        top: 0,
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        flexDirection: "column",
+        paddingBottom: "72rem",
+        boxSizing: "border-box",
+        zIndex: 100000,
         pointerEvents: "none",
     },
     notice: {
+        width: "330rem",
+        maxWidth: "70%",
         overflow: "hidden",
         color: "#ffffff",
         fontSize: "13rem",
@@ -48,7 +59,7 @@ const styles: Record<string, CSSProperties> = {
 export const MilestoneAutoDismiss = () => {
     const { translate } = useLocalization();
     const inSession = useValue(inSession$);
-    const unlocked = useValue(milestone.unlockedMilestone$);
+    const unlocked = useValue(unlockedMilestone$);
     const [remainingMs, setRemainingMs] = useState(AUTO_DISMISS_MS);
     const unlockedIndex = unlocked?.index ?? 0;
     const unlockedVersion = unlocked?.version ?? 0;
@@ -65,7 +76,11 @@ export const MilestoneAutoDismiss = () => {
         const timeout = window.setTimeout(() => {
             window.clearInterval(interval);
             setRemainingMs(0);
-            milestone.clearUnlockedMilestone();
+            try {
+                trigger("milestone", "clearUnlockedMilestone");
+            } catch (e) {
+                console.warn("[cs2mp] Could not dismiss the milestone popup automatically.", e);
+            }
         }, AUTO_DISMISS_MS);
 
         return () => {

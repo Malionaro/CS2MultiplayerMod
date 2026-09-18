@@ -84,7 +84,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
             PruneNativeObjectOperations(now);
             if (_nativeNetCoordinator.IsCommitBusy) return;
-            if (!TryRealizeBlockedNativeObject(now)) return;
 
             _rzFrameSpawned = 0;
             _rzFrameBatchedObjects = 0;
@@ -92,6 +91,8 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             _rzRealizedThisFrame.Clear();
             try
             {
+                if (!TryRealizeBlockedNativeObject(now)) return;
+
                 if (!DeferForTerrain)
                 {
                     RetryPendingAttachments(now);
@@ -135,12 +136,6 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     break;
                 }
 
-                if (_rzFrameSpawned >= MaxRealizePerFrame)
-                {
-                    _nativeObjectReplayPrefix.Insert(0, message);
-                    break;
-                }
-
                 if (message.CommandId == ObjectToolOperationCommand.Id ||
                     message.CommandId == AssetStampCommand.Id)
                 {
@@ -154,6 +149,16 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     }
                     if (result == NativeObjectResult.Armed) break;
                     continue;
+                }
+
+                // The small per-frame budget protects standalone building/prop messages. Native
+                // tree/prop brush operations are checked above because their complete definition
+                // batch is one indivisible frame; making them wait here recreated a visible queue
+                // after the preceding brush batch had already been applied atomically.
+                if (_rzFrameSpawned >= MaxRealizePerFrame)
+                {
+                    _nativeObjectReplayPrefix.Insert(0, message);
+                    break;
                 }
 
                 ObjectPlacementCommand command;

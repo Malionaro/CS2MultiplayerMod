@@ -176,6 +176,7 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             ResolvedObjectDefinition[] resolved;
             string reason;
             bool equivalentExists;
+            bool independentObjectBatch;
             int resolveStartTick = System.Environment.TickCount;
             BeginPortableResolve();
             try
@@ -193,9 +194,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     return NativeObjectResult.Retry;
                 }
                 _lastUnresolvedObjectReason = null;
-                equivalentExists = EquivalentObjectOperationAlreadyExists(command, resolved);
+                independentObjectBatch = IsIndependentObjectBatch(command, resolved);
+                // A brush has several independent roots. Testing only RootIndex would suppress
+                // the entire stroke when that one tree was already present; the direct path does
+                // duplicate detection per placement instead.
+                equivalentExists = !independentObjectBatch &&
+                                   EquivalentObjectOperationAlreadyExists(command, resolved);
             }
             finally { EndPortableResolve(); }
+
+            if (independentObjectBatch)
+                return RealizeIndependentObjectBatch(key, command, resolved,
+                    message.OriginPlayerId, now);
 
             if (equivalentExists)
             {

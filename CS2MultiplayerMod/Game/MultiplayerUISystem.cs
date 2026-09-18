@@ -9,6 +9,7 @@ using Game;
 using Game.SceneFlow;
 using Game.UI;
 using Game.UI.Menu;
+using System.IO;
 
 namespace CS2MultiplayerMod.Game
 {
@@ -48,6 +49,20 @@ namespace CS2MultiplayerMod.Game
         private bool _hostAfterWorldLoad;
         private bool _hostWorldLoadStarted;
         private ValueBinding<bool> _multiplayerMenuActiveBinding;
+
+        private static bool IsUiBundleInstalled()
+        {
+            try
+            {
+                string assemblyDirectory = Path.GetDirectoryName(typeof(MultiplayerUISystem).Assembly.Location);
+                return !string.IsNullOrEmpty(assemblyDirectory) &&
+                       File.Exists(Path.Combine(assemblyDirectory, "CS2MultiplayerMod.mjs"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         protected override void OnCreate()
         {
@@ -503,12 +518,21 @@ namespace CS2MultiplayerMod.Game
             if (UnityEngine.Time.realtimeSinceStartup - _createdAt < UiReadyGraceSeconds) return;
 
             _uiModuleWarned = true;
-            SyncLog.Warn(LogTopic.Ui,
-                "The multiplayer UI module never reported in - the main-menu button is most likely missing. " +
-                "Either CS2MultiplayerMod.mjs is not in the mod folder, or another mod's broken UI module " +
-                "(known offender: Gooee) crashed the game's UI-module load chain before it reached this mod. " +
-                "Check the game's UI log for JS errors from other mods and remove the broken mod. " +
-                "Joining still works without the button via Options > CS2 Multiplayer Mod > Join Game.");
+            if (!IsUiBundleInstalled())
+            {
+                SyncLog.Warn(LogTopic.Ui,
+                    "The multiplayer UI module never reported in because CS2MultiplayerMod.mjs is missing " +
+                    "beside the mod DLL. The installed mod package is incomplete; reinstall or update it. " +
+                    "Joining still works via Options > CS2 Multiplayer Mod > Join Game.");
+            }
+            else
+            {
+                SyncLog.Warn(LogTopic.Ui,
+                    "The multiplayer UI module never reported in even though CS2MultiplayerMod.mjs is installed. " +
+                    "Another UI module may have crashed the game's module-load chain before it reached this mod. " +
+                    "Check the game's UI log for the first JavaScript error. Joining still works via " +
+                    "Options > CS2 Multiplayer Mod > Join Game.");
+            }
         }
     }
 }

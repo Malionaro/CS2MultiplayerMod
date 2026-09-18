@@ -1,6 +1,8 @@
 using Unity.Entities;
 using Unity.Collections;
+using Game;
 using Game.City;
+using Game.Common;
 using Game.Prefabs;
 using Game.Simulation;
 using CS2MultiplayerMod.Core.Protocol;
@@ -9,6 +11,15 @@ using CS2MultiplayerMod.Game.Diagnostics;
 using CS2MultiplayerMod.Game.Sync.Infrastructure;
 namespace CS2MultiplayerMod.Game.Sync.Channels
 {
+    /// <summary>
+    /// Marks a client-side milestone event created only to drive the native popup. The native
+    /// development-tree system also consumes milestone events, so a correction system removes
+    /// the points it would otherwise award a second time.
+    /// </summary>
+    internal struct RemoteMilestonePopup : IComponentData
+    {
+    }
+
     /// <summary>
     /// Replicates the achieved milestone level and loan limit, then repairs the prefab unlock
     /// cascade that belongs to every reached milestone. One-time rewards stay host-authoritative.
@@ -21,6 +32,10 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         private EntityQuery _query;
         private EntityQuery _milestones;
         private DeferredPrefabUnlocker _unlocks;
+        private EndFrameBarrier _barrier;
+        private EntityArchetype _popupEventArchetype;
+        private bool _hasAuthoritativeLevel;
+        private int _authoritativeLevel;
         private bool _ready;
 
         private void Ensure(EntityManager em)
@@ -33,6 +48,11 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
             // IncludePrefab option required by development-tree node queries.
             _milestones = em.CreateEntityQuery(ComponentType.ReadOnly<MilestoneData>());
             _unlocks = new DeferredPrefabUnlocker(em);
+            _barrier = em.World.GetOrCreateSystemManaged<EndFrameBarrier>();
+            _popupEventArchetype = em.CreateArchetype(
+                ComponentType.ReadWrite<Event>(),
+                ComponentType.ReadWrite<MilestoneReachedEvent>(),
+                ComponentType.ReadWrite<RemoteMilestonePopup>());
             _ready = true;
         }
 
@@ -86,21 +106,53 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         {
             Entity e = _query.GetSingletonEntity();
             MilestoneLevel m = em.GetComponentData<MilestoneLevel>(e);
+            bool notifyClient = _hasAuthoritativeLevel &&
+                                level > _authoritativeLevel &&
+                                m.m_AchievedMilestone < level;
+
+            // A normal local milestone creates both Unlock and MilestoneReachedEvent. Applying
+            // the authoritative level directly skips the latter, so the client never receives
+            // the native popup. The first snapshot is only a baseline (joining an existing city
+            // must not replay its history); later increases get one deferred popup event. Queue
+            // before mutating the city so an event-scheduler failure remains retryable.
+            if (notifyClient)
+                QueuePopup(level, milestoneEntities, milestoneData);
+
             m.m_AchievedMilestone = level;
             em.SetComponentData(e, m);
             em.SetComponentData(e, new Creditworthiness { m_Amount = creditworthiness });
+            _authoritativeLevel = level;
+            _hasAuthoritativeLevel = true;
 
             // Repair every achieved milestone, even when the number already matched. Older
             // clients could receive the number without the prefab unlock event, and a later
-            // snapshot must be able to heal that partial state. Queueing only Unlock keeps cash,
-            // development points and other additive MilestoneReachedEvent rewards untouched. The
-            // loan limit above is an absolute host value, so a repeated snapshot cannot add it twice.
+            // snapshot must be able to heal that partial state. Unlock does not replay cash or the
+            // loan reward. The separate marked popup event is compensated immediately after the
+            // native development-tree consumer, while the absolute loan value above is idempotent.
             int queued = ReconcileUnlocks(em, level, milestoneEntities, milestoneData);
             if (queued > 0)
             {
                 SyncLog.Detail(LogTopic.City, "MilestoneState: queued " + queued +
                     " missing milestone unlock(s) through level " + level + ".");
             }
+        }
+
+        private void QueuePopup(int level, NativeArray<Entity> entities,
+            NativeArray<MilestoneData> milestones)
+        {
+            Entity milestone = Entity.Null;
+            for (int i = 0; i < milestones.Length; i++)
+            {
+                if (milestones[i].m_Index != level) continue;
+                milestone = entities[i];
+                break;
+            }
+
+            EntityCommandBuffer ecb = _barrier.CreateCommandBuffer();
+            Entity popupEvent = ecb.CreateEntity(_popupEventArchetype);
+            ecb.SetComponent(popupEvent, new MilestoneReachedEvent(milestone, level));
+            SyncLog.Detail(LogTopic.City,
+                "MilestoneState: queued native client popup for milestone " + level + ".");
         }
 
         private int ReconcileUnlocks(EntityManager em, int achievedMilestone,
@@ -127,6 +179,8 @@ namespace CS2MultiplayerMod.Game.Sync.Channels
         public void ResetPending()
         {
             if (_unlocks != null) _unlocks.Reset();
+            _hasAuthoritativeLevel = false;
+            _authoritativeLevel = 0;
         }
     }
 }

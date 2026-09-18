@@ -98,7 +98,7 @@ export const DisclaimerModal = ({ onAccept, onDecline }: {
                             <div style={styles.title}>{t(LOC.title, "Before You Continue")}</div>
                             <div style={styles.body}>
                                 {t(LOC.body,
-                                    "Multiplayer is experimental beta software, provided for free \"as is\". " +
+                                    "Multiplayer is a mod provided for free \"as is\". " +
                                     "Only host or join sessions with people you trust. By continuing you accept " +
                                     "that you use this mod at your own risk and that the author is not liable for " +
                                     "any damage, data loss, or other issues arising from its use, except where " +

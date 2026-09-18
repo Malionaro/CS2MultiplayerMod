@@ -9,7 +9,7 @@ namespace CS2MultiplayerMod.Game
     /// observes) can change between patches, so a build outside this list is flagged
     /// to the player as untested - a non-blocking warning banner in the Join dialog
     /// and the in-game hub. Multiplayer still works; the player is just told that
-    /// things may break and to keep backups.
+    /// things may break.
     /// </summary>
     public static class GameVersionCheck
     {

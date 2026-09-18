@@ -144,7 +144,7 @@ Check that you do not have any [launch options](https://cs2.paradoxwikis.com/Lau
 The mod options carry a Host tab and a Join tab that can start or join a session without the
 in-game screens.
 
-![](assets/img/ui-options-general.png)
+![](assets/img/ui-options-general.webp)
 
 !!! warning "Those tabs are only a fallback"
 

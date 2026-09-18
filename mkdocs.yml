@@ -13,9 +13,8 @@ site_dir: site
 theme:
   name: shadcn
   custom_dir: overrides
-  icon: assets/logo.webp
   favicon: assets/favicon.svg
-  show_title: true
+  show_title: false
   topbar_sections: true
   show_stargazers: true
   hide_source_files: false

@@ -23,6 +23,8 @@ This update expands the regular Host Game controls, improves synchronization for
 * Household income is now corrected immediately after the local game recalculates it, preventing clients from consuming stale residential-economy values.
 * Milestone and building-unlock popups now close automatically after 10 seconds during multiplayer.
 * This prevents an AFK host or client from indefinitely blocking simulation continuation for everyone else.
+* Clients now receive the native milestone popup for newly reached host milestones, including milestone 1, without replaying earlier milestones or duplicating development points.
+* Release builds now always include and validate the multiplayer UI bundle, preventing the main-menu button, in-game button and milestone countdown from all being absent on affected installations.
 
 ### Performance
 

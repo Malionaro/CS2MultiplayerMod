@@ -1,25 +1,74 @@
 ---
 title: Mods and compatibility
 description: "Which mods are officially supported, how unsupported mods affect multiplayer, and how the compatibility check works."
+extra_javascript:
+  - assets/mod-table.js
 ---
 
 # Mods and compatibility
 
-## Official mod support
+This list combines **official support and community multiplayer testing**.
 
-The following mods are officially supported, verified and maintained by the CS2 Multiplayer
-Mod developers. They do not show the other-mod warning and do not block hosting or joining,
-even when **Ignore Mod Compatibility Checks** is off.
+**Last updated:** September 17, 2026
 
-| Mod | Status |
-| --- | --- |
-| [Traffic](https://mods.paradoxplaza.com/mods/80095/) | Fully supported |
-| [Road Speed Adjuster](https://mods.paradoxplaza.com/mods/125866/) | Fully supported |
-| [Anarchy](https://mods.paradoxplaza.com/mods/74604/) | Fully supported |
-| [Find It](https://mods.paradoxplaza.com/mods/77240/) | Fully supported |
-| [Asset Icon Library](https://mods.paradoxplaza.com/mods/79634/) | Fully supported |
+## Compatibility list
 
----
+<div class="mod-table" markdown>
+
+| Status | Mod | Details | Tested by |
+| --- | --- | --- | --- |
+| 🛠️ Official | [Traffic](https://mods.paradoxplaza.com/mods/80095/Windows) | Fully supported. | CS2 Multiplayer Developers, J. M. S., DaStrobel, Janno |
+| 🛠️ Official | [Road Speed Adjuster](https://mods.paradoxplaza.com/mods/125866/Windows) | Fully supported. | CS2 Multiplayer Developers |
+| 🟢 Works | Anarchy | Works without known issues. | J. M. S., Janno |
+| 🟢 Works | Building Use | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Custom Chirps | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | [Extended Tooltip](https://mods.paradoxplaza.com/mods/78188/Windows) | Works for host and clients. | Tommy, Janno |
+| 🟢 Works | I18n Everywhere | Works without known issues. | J. M. S., Janno |
+| 🟢 Works | Find It | Works without known issues. | J. M. S. |
+| 🟢 Works | Region Flag Icons | Works without known issues. | J. M. S. |
+| 🟢 Works | Asset Icon Library | Works without known issues. | J. M. S. |
+| 🟢 Works | Unified Icon Library | Works without known issues. | J. M. S., Janno |
+| 🟢 Works | Extra Lib | Works without known issues. | J. M. S. |
+| 🟢 Works | Industry Boundary | Works without known issues. | Tommy |
+| 🟢 Works | All Transit + Trucks | Works without known issues. | Tommy |
+| 🟢 Works | Lumina | Works without known issues. Cosmetic mod. | DaStrobel |
+| 🟢 Works | [Stop Jaywalking](https://mods.paradoxplaza.com/mods/150664/Windows) | Works for host and clients as a client-side mod. | Tommy |
+| 🟢 Works | [Road Name Remover](https://mods.paradoxplaza.com/mods/77463/Windows) | Works for host and clients as a client-side mod. | Tommy |
+| 🟢 Works | [Achievement Fixer](https://mods.paradoxplaza.com/mods/121256/Windows) | Works for host and clients as a client-side mod. | Tommy |
+| 🟢 Works | [Specialized Industry Freedom](https://mods.paradoxplaza.com/mods/155500/Windows) | Works for both host and clients. | Tommy |
+| 🟢 Works | [Articulated Buses](https://mods.paradoxplaza.com/mods/148570/Windows) | Works for host and clients as a client-side mod. | Tommy |
+| 🟢 Works | No Vehicle Despawn | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Realistic JobSearch | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Realistic Trips | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Realistic Workplaces And Households | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Traffic Tool Essentials | No multiplayer issues observed in the tested modset. | Janno |
+| 🟢 Works | Official Region Packs | Official region packs such as the German and French packs were tested without problems. | J. M. S. |
+| 🟡 Partially works | Move It | Works, but some functionality may only work correctly when used by the host. | J. M. S., Janno |
+| 🟡 Partially works | Node Controller | Works for the host. Changes become visible to clients after a resync. Non-host players cannot move nodes themselves. | DaStrobel, J. M. S., Janno |
+| 🟡 Partially works | Traffic Lights Enhancement | Works when used by the host. Changes become effective for clients after a resync. Non-host players cannot change intersection settings themselves. | DaStrobel |
+| 🟡 Partially works | CoPaste | Works for the host. Usage by non-host players can cause desyncs and may require a forced resync. | Tommy |
+| 🟡 Partially works | [529 Tiles](https://mods.paradoxplaza.com/mods/74328/Windows) | When using `Select initial starting tiles`, only the host can purchase the free starting tiles. Afterwards non-host players can purchase tiles normally. | Tommy |
+| 🟡 Partially works | [Change Company](https://mods.paradoxplaza.com/mods/114101/Windows) | Only the host can use and configure the mod and affected buildings. | Tommy |
+| 🟡 Partially works | [Event Rush](https://mods.paradoxplaza.com/mods/156682/Windows) | Citizens created by the mod are visible to both host and clients. Very large events can cause significant performance problems. | Tommy |
+| 🟡 Partially works | Decals / Props | Placement works, but changes are not automatically synchronized. A manual synchronization makes them visible to other players. | KeKo |
+| 🔴 Doesn't work | Better Bulldozer | Bulldozing objects can cause connected players to crash. | KeKo |
+
+</div>
+
+**Mods by Gruny:** J. M. S. reported that mods made by **Gruny** generally appeared to work without
+problems. Because individual mods were not listed separately in the report, they are not
+individually marked as verified above.
+
+## Report a mod
+
+Please only report mods you have actually tested in multiplayer, in this format:
+
+```text
+🟢 / 🟡 / 🔴 Mod Name
+🔗 Paradox Mods Link
+Status: Works / Partially Works / Doesn't Work
+Details: What works, what doesn't, and whether there are host/client limitations.
+```
 
 ## Other mods are blocked
 
@@ -52,7 +101,7 @@ To clear the block:
 Options ▸ CS2 Multiplayer Mod ▸ General ▸ Ignore Mod Compatibility Checks (Own Risk).
 Change it while offline, before hosting or joining.
 
-![](assets/img/ui-options-general.png)
+![](assets/img/ui-options-general.webp)
 
 With it on, other active mods no longer block hosting or joining on your machine, and a
 host also admits players on a different CS2 Multiplayer Mod build as long as the network
@@ -64,7 +113,7 @@ It does not bypass:
 - the Cities: Skylines II version check, or
 - the DLC check.
 
-It also does not make another mod multiplayer-aware. Back up the city, use the same playset
+It also does not make another mod multiplayer-aware. Use the same playset
 on every computer where possible, and expect desyncs, missing prefabs, broken cities or
 crashes. The host decides whether different multiplayer-mod builds are admitted; each
 player decides whether their own extra mods are allowed locally.

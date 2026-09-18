@@ -8,10 +8,6 @@ description: "One player hosts, everyone else joins and downloads the host's cit
 One player hosts, everyone else joins and downloads the host's city. Roads, zoning,
 services, finances, progression, time and weather stay in sync while you build together.
 
-!!! warning "The mod is experimental"
-
-    Back up your save before you host or join, and expect bugs while development
-    continues. Only host for people you trust.
 ## Start here
 <div class="cards">
 

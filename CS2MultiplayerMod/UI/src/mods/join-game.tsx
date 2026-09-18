@@ -15,6 +15,7 @@ import { DisclaimerModal, disclaimerAccepted$ } from "mods/disclaimer";
 import { MultiplayerJoinLoadingScreen } from "mods/loading-screen";
 import { OtherModsBanner, useModsBlocked } from "mods/mods-banner";
 import { MULTIPLAYER_BLUE } from "mods/multiplayer-theme";
+import { RESYNC_ALLOW, RESYNC_LOC, ResyncPolicyDropdown } from "mods/resync-policy";
 import { VersionWarningBanner } from "mods/version-banner";
 
 // Binding group shared with MultiplayerUISystem on the C# side. The field values
@@ -37,10 +38,14 @@ const LOC = {
     hostAddress: "CS2MP.UI.HostAddress",
     port: "CS2MP.UI.Port",
     password: "CS2MP.UI.Password",
+    requireApproval: "CS2MP.UI.RequireApproval",
+    autoApproveSteamFriends: "CS2MP.UI.AutoApproveSteamFriends",
+    simulationSync: "CS2MP.UI.SimulationSync",
     join: "CS2MP.UI.Join",
     disconnect: "CS2MP.UI.Disconnect",
     closeSession: "CS2MP.UI.CloseSession",
     ...CONNECTION_LOC,
+    ...RESYNC_LOC,
 };
 
 // translate() is typed string | null; this narrows it to the English fallback so
@@ -62,6 +67,10 @@ const isHost$ = bindValue<boolean>(GROUP, "isHost", false);
 const savedGames$ = bindValue<unknown[]>("menu", "saves", []);
 const multiplayerMenuActive$ = bindValue<boolean>(GROUP, "multiplayerMenuActive", false);
 const hostConnection$ = bindValue<string>(GROUP, "hostConnection", CONNECTION_RELAY);
+const requireApproval$ = bindValue<boolean>(GROUP, "requireApproval", true);
+const autoApproveSteamFriends$ = bindValue<boolean>(GROUP, "autoApproveSteamFriends", false);
+const resyncPolicy$ = bindValue<string>(GROUP, "resyncPolicy", RESYNC_ALLOW);
+const simulationSync$ = bindValue<boolean>(GROUP, "simulationSync", true);
 const joinCode$ = bindValue<string>(GROUP, "joinCode", "");
 const relayAvailable$ = bindValue<boolean>(GROUP, "relayAvailable", false);
 // False on copies of the game that ship no Steam library (Microsoft Store / Game
@@ -310,6 +319,50 @@ const styles: Record<string, CSSProperties> = {
     connectionSpacer: {
         height: "12rem",
     },
+    hostOptions: {
+        display: "flex",
+        alignItems: "center",
+        marginTop: "14rem",
+        paddingTop: "14rem",
+        borderTop: "1rem solid rgba(157, 193, 222, 0.22)",
+    },
+    hostOption: {
+        flex: "1 1 0%",
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+        cursor: "pointer",
+    },
+    hostSetting: {
+        flex: "1 1 0%",
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+    },
+    hostOptionLabel: {
+        flex: "0 1 auto",
+        minWidth: 0,
+        paddingRight: "10rem",
+        fontSize: "16rem",
+        color: "#9dc1de",
+        textTransform: "uppercase",
+    },
+    toggleBox: {
+        width: "24rem",
+        height: "24rem",
+        flexShrink: 0,
+        borderRadius: "3rem",
+        backgroundColor: "rgba(0, 0, 0, 0.35)",
+        border: "1rem solid rgba(157, 193, 222, 0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    toggleCheck: {
+        width: "15rem",
+        height: "15rem",
+        filter: "brightness(0) invert(1)",
+    },
     dropdownToggle: {
         minWidth: "260rem",
     },
@@ -418,6 +471,19 @@ const ChoiceTile = ({ focusKey, icon, label, disabled, onSelect }: ChoiceTilePro
     </Button>
 );
 
+const HostOption = ({ label, value, onChange }: {
+    label: string;
+    value: boolean;
+    onChange: (value: boolean) => void;
+}) => (
+    <div style={styles.hostOption} onClick={() => onChange(!value)}>
+        <div style={styles.hostOptionLabel}>{label}</div>
+        <div style={styles.toggleBox}>
+            {value ? <img src="Media/Glyphs/Checkmark.svg" style={styles.toggleCheck} /> : null}
+        </div>
+    </div>
+);
+
 /**
  * Host connection picker: relay (default) or a direct port. In relay mode the code
  * players need is shown right here, because that is the only thing they have to be
@@ -430,6 +496,10 @@ const ConnectionPicker = () => {
     const relayAvailable = useValue(relayAvailable$);
     const relaySupported = useValue(relaySupported$);
     const relayReason = useValue(relayUnavailableReason$);
+    const requireApproval = useValue(requireApproval$);
+    const autoApproveSteamFriends = useValue(autoApproveSteamFriends$);
+    const resyncPolicy = useValue(resyncPolicy$);
+    const simulationSync = useValue(simulationSync$);
 
     const relay = relaySupported && mode !== CONNECTION_DIRECT;
 
@@ -463,6 +533,39 @@ const ConnectionPicker = () => {
                         ? `${t(LOC.joinCodeHint, "Send this code to your friends. They pick Steam Relay on their Join screen and enter it.")} ${t(LOC.joinCodeSelectHint, "Click the code to select it, then press Ctrl+C.")}`
                         : `${t(LOC.relayUnavailableHint, "Steam is not available right now, so relay hosting cannot start. Use a direct connection instead.")}${relayReason ? ` (${relayReason})` : ""}`
                     : t(LOC.directHint, "Players connect to your address and port. Needs the port forwarded on your router.")}
+            </div>
+            <div style={styles.hostOptions}>
+                <HostOption
+                    label={t(LOC.requireApproval, "Approve Players")}
+                    value={requireApproval}
+                    onChange={(value) => trigger(GROUP, "setRequireApproval", value)}
+                />
+                <div style={{ width: "28rem", flexShrink: 0 }} />
+                <HostOption
+                    label={t(LOC.simulationSync, "Simulation Sync")}
+                    value={simulationSync}
+                    onChange={(value) => trigger(GROUP, "setSimulationSync", value)}
+                />
+            </div>
+            <div style={styles.hostOptions}>
+                {relay && requireApproval ? (
+                    <>
+                        <HostOption
+                            label={t(LOC.autoApproveSteamFriends, "Auto-Approve Steam Friends")}
+                            value={autoApproveSteamFriends}
+                            onChange={(value) => trigger(GROUP, "setAutoApproveSteamFriends", value)}
+                        />
+                        <div style={{ width: "28rem", flexShrink: 0 }} />
+                    </>
+                ) : null}
+                <div style={styles.hostSetting}>
+                    <div style={styles.hostOptionLabel}>{t(LOC.policy, "Client Resyncs")}</div>
+                    <ResyncPolicyDropdown
+                        value={resyncPolicy}
+                        style={{ minWidth: "150rem" }}
+                        onChange={(value) => trigger(GROUP, "setResyncPolicy", value)}
+                    />
+                </div>
             </div>
         </div>
         </div>

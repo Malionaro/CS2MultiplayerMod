@@ -15,10 +15,10 @@ router rule all have to use the same port.
 ## Hosting
 
 1. Open Multiplayer and click Host Game.
-![](assets/img/ui-menu-multiplayer.png)
-![](assets/img/ui-menu-choice-host.png)
+![](assets/img/ui-menu-multiplayer.webp)
+![](assets/img/ui-menu-choice-host.webp)
 2. Set the connection type to Direct Connection.
-![](assets/img/ui-host-world.png)
+![](assets/img/ui-host-world.webp)
 3. Load or create your world as usual. The session starts once the city has loaded.
 4. Share your IP address and port with the other players.
 
@@ -32,15 +32,15 @@ Which address you share depends on where the other players are:
 Session settings live in the multiplayer panel while you play, and in the mod options
 before you start: port, password, player limit, LAN Only and player approval.
 
-![](assets/img/ui-session-panel-stopped.png)
+![](assets/img/ui-session-panel-stopped.webp)
 
 ## Joining
 
 1. Open Multiplayer and click Join Game.
-![](assets/img/ui-menu-choice-join.png)
+![](assets/img/ui-menu-choice-join.webp)
 2. Set the connection type to Direct Connection.
 3. Enter the host's address and port, your player name, and the password if there is one.
-![](assets/img/ui-join-direct.png)
+![](assets/img/ui-join-direct.webp)
 4. Click Join and wait while the host's city downloads.
 
 !!! warning "Set a password"

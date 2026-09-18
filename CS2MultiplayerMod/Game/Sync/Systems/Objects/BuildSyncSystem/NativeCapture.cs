@@ -316,6 +316,10 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (!EntityManager.Exists(entity) ||
                         !EntityManager.HasComponent<CreationDefinition>(entity)) continue;
 
+                    // The brush display has no world-edit shape. Its placement/delete
+                    // definitions follow separately and must still travel as one operation.
+                    if (ObjectBrushCapture.IsVisualDefinition(EntityManager, entity)) continue;
+
                     ObjectToolDefinitionIntent definition;
                     if (!TryCaptureObjectToolDefinition(entity, out definition))
                     {

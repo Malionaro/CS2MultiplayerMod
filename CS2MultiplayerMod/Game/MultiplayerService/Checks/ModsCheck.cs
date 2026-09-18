@@ -16,10 +16,11 @@ using PlaysetMod = Colossal.PSI.Common.Mod;
 namespace CS2MultiplayerMod.Game
 {
     /// <summary>
-    /// Finds every mod other than this one that is live for the running game. Hosting and
-    /// joining are both refused while any is present: nothing in the sync layer accounts
-    /// for a third party changing prefabs, tools or the simulation, so one such mod on one
-    /// side is enough to desync the session or crash the other player.
+    /// Finds every unsupported mod that is live for the running game. Hosting and joining
+    /// are both refused while any is present: nothing in the sync layer accounts for an
+    /// unverified third party changing prefabs, tools or the simulation, so one such mod on
+    /// one side is enough to desync the session or crash the other player. Mods explicitly
+    /// verified by the multiplayer developers are filtered out and never reach the gate.
     ///
     /// The active Paradox Mods playset is the source of truth wherever it can be read: it
     /// tracks what the player toggles live, and it is the only source that also lists
@@ -43,6 +44,39 @@ namespace CS2MultiplayerMod.Game
         /// own playset entry when it carries no local path to match on.
         /// </summary>
         private const string OwnPlatformId = "150432";
+
+        /// <summary>
+        /// Paradox Mods ids verified and maintained by the multiplayer developers. Matching
+        /// the stable store id is preferred over a display name because titles can be changed
+        /// or localized without producing a different mod.
+        /// </summary>
+        private static readonly HashSet<string> SupportedPlatformIds =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "74604",  // Anarchy
+                "77240",  // Find It
+                "79634",  // Asset Icon Library
+                "80095",  // Traffic
+                "125866"  // Road Speed Adjuster
+            };
+
+        /// <summary>
+        /// Store titles and assembly names for local/offline installs, where no Paradox id
+        /// is available. Keep aliases exact so an unrelated similarly named mod is not
+        /// accidentally admitted.
+        /// </summary>
+        private static readonly HashSet<string> SupportedNames =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Anarchy",
+                "Asset Icon Library",
+                "AssetIconLibrary",
+                "Find It",
+                "FindIt",
+                "Road Speed Adjuster",
+                "RoadSpeedAdjuster",
+                "Traffic"
+            };
 
         /// <summary>Names listed before the rest collapse into a "+N more" tail.</summary>
         private const int MaxNamesListed = 6;
@@ -70,9 +104,9 @@ namespace CS2MultiplayerMod.Game
         private static bool _scanWarned;
 
         /// <summary>
-        /// Display names of the other live mods, sorted, or an empty array when the only
-        /// mod running is this one. A scan that fails outright reports empty: a detection
-        /// fault must not lock the player out of multiplayer altogether.
+        /// Display names of the unsupported live mods, sorted, or an empty array when every
+        /// active mod is officially supported. A scan that fails outright reports empty: a
+        /// detection fault must not lock the player out of multiplayer altogether.
         /// </summary>
         public static string[] OtherModNames
         {
@@ -123,9 +157,10 @@ namespace CS2MultiplayerMod.Game
         }
 
         /// <summary>
-        /// The other live mods for a session log line: <c>none</c>, or the names in brackets.
-        /// Recorded whether or not they block anything - with the compatibility check bypassed
-        /// they are the first thing to suspect in a desync, so the log has to say they were there.
+        /// The unsupported live mods for a session log line: <c>none</c>, or the names in
+        /// brackets. Recorded whether or not they block anything - with the compatibility
+        /// check bypassed they are the first thing to suspect in a desync, so the log has to
+        /// say they were there.
         /// </summary>
         public static string Summary()
         {
@@ -205,7 +240,7 @@ namespace CS2MultiplayerMod.Game
                     var found = new List<string>();
                     foreach (PlaysetMod mod in mods)
                     {
-                        if (IsSelf(mod)) continue;
+                        if (IsSelf(mod) || IsOfficiallySupported(mod)) continue;
                         string name = PlaysetName(mod);
                         if (!string.IsNullOrEmpty(name)) found.Add(name);
                     }
@@ -233,7 +268,7 @@ namespace CS2MultiplayerMod.Game
                 {
                     if (info == null || info.asset == null) continue;
                     if (!info.asset.isMod || !info.isLoaded) continue;
-                    if (IsSelf(info)) continue;
+                    if (IsSelf(info) || IsOfficiallySupported(info)) continue;
                     Add(names, seen, LoadedName(info));
                 }
             }
@@ -260,6 +295,32 @@ namespace CS2MultiplayerMod.Game
             string own = typeof(Mod).Assembly.GetName().Name;
             if (string.Equals(info.asset.name, own, StringComparison.OrdinalIgnoreCase)) return true;
             return SharesOwnFolder(info.asset.path);
+        }
+
+        private static bool IsOfficiallySupported(PlaysetMod mod)
+        {
+            if (!string.IsNullOrEmpty(mod.id) && SupportedPlatformIds.Contains(mod.id))
+                return true;
+
+            return IsSupportedName(mod.displayName);
+        }
+
+        private static bool IsOfficiallySupported(ModManager.ModInfo info)
+        {
+            return IsSupportedName(info.asset.name) || IsSupportedName(info.name);
+        }
+
+        private static bool IsSupportedName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+
+            string candidate = name.Trim();
+            if (SupportedNames.Contains(candidate)) return true;
+
+            // Some local mod loaders expose the assembly filename rather than its simple name.
+            const string extension = ".dll";
+            return candidate.EndsWith(extension, StringComparison.OrdinalIgnoreCase) &&
+                   SupportedNames.Contains(candidate.Substring(0, candidate.Length - extension.Length));
         }
 
         /// <summary>
@@ -348,11 +409,11 @@ namespace CS2MultiplayerMod.Game
         }
 
         /// <summary>
-        /// Reports the set whenever it changes, ungated: which other mods were live is one of the
-        /// few facts every bug report needs, and with the compatibility check bypassed the mod
-        /// that broke the session is in this list rather than in ours. Rare enough for an event -
-        /// it only fires when the set actually changes - and it names the source it read, which
-        /// is what a player needs when the block names a mod they have already turned off.
+        /// Reports the unsupported set whenever it changes, ungated. With the compatibility
+        /// check bypassed the mod that broke the session may be in this list rather than in
+        /// ours. Rare enough for an event - it only fires when the set actually changes - and
+        /// it names the source it read, which is what a player needs when the block names a mod
+        /// they have already turned off.
         /// </summary>
         private static void LogChange(string[] previous, string[] current)
         {
@@ -367,8 +428,8 @@ namespace CS2MultiplayerMod.Game
             string source = _restartRequired ? "loaded assemblies (restart to clear)" : "active playset";
             SyncLog.Event(LogTopic.Startup,
                 current.Length == 0
-                    ? "No other mods are active - multiplayer is available."
-                    : "Other mods are active, from the " + source + ": " +
+                    ? "No unsupported mods are active - multiplayer is available."
+                    : "Unsupported mods are active, from the " + source + ": " +
                       string.Join(", ", current) + ".");
         }
 
@@ -377,7 +438,7 @@ namespace CS2MultiplayerMod.Game
             if (_scanWarned) return;
             _scanWarned = true;
             SyncLog.Warn(LogTopic.Startup, "Could not read the " + source + " (" + ex.Message +
-                "); other mods cannot be detected from it.");
+                "); unsupported mods cannot be detected from it.");
         }
     }
 }

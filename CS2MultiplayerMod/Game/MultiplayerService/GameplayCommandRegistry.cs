@@ -26,6 +26,8 @@ namespace CS2MultiplayerMod.Game
             DisasterEventCommand.Id, EntityNameCommand.Id,
             GrowableLifecycleCommand.Id,
             ModTypeTableCommand.Id, ModStateCommand.Id,
+            ObjectPlacementBatchCommand.Id, ObjectDeleteBatchCommand.Id,
+            FireIgniteCommand.Id,
         };
 
         internal static void Register(MultiplayerSession session)
@@ -70,6 +72,9 @@ namespace CS2MultiplayerMod.Game
                 case GrowableLifecycleCommand.Id: return "growable-lifecycle";
                 case ModTypeTableCommand.Id: return "mod-type-table";
                 case ModStateCommand.Id: return "mod-state";
+                case ObjectPlacementBatchCommand.Id: return "object-place-batch";
+                case ObjectDeleteBatchCommand.Id: return "object-delete-batch";
+                case FireIgniteCommand.Id: return "fire-ignite";
                 default: return "unknown";
             }
         }

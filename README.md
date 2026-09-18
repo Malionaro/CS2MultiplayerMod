@@ -6,7 +6,7 @@ Feel free to join the development Discord server [here](https://discord.gg/KFZTW
 
 This is a **multiplayer mod** for Cities: Skylines II. Join your friends and build a city together!
 
-The mod is **experimental**. Back up your saves before hosting or joining, and expect bugs while development continues. 
+The mod is in active development, so bugs can still turn up - report anything you hit on the Discord server.
 
 ## Requirements
 
@@ -28,7 +28,7 @@ The easiest way is through **Paradox Mods**: find the mod, add it to an **empty*
 2. Click **Multiplayer** on the main menu, then **Host Game**.
 3. Pick a connection. **Steam Relay** needs no setup and works if everyone owns the game on Steam. **Direct connection** syncs faster but the host has to make their port reachable, and it is the only option on Xbox App, Microsoft Store and Game Pass copies.
 4. With Steam Relay, copy the join code and send it to your friends. For direct connection, see [Direct connection](help/direct-connection.md).
-5. Choose **Load World** for an existing city or **Create World** for a new one. If you use an existing save, **make a backup first**.
+5. Choose **Load World** for an existing city or **Create World** for a new one.
 6. Finish the game's normal world selection. The multiplayer session starts automatically once the city is fully loaded.
 7. If a city is already open, you can still start hosting from the in-game Multiplayer panel or the mod settings.
 

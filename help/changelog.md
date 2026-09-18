@@ -5,6 +5,42 @@ description: "What changed in each release of the mod: new features, sync work a
 
 # Changelog
 
+## Version 1.7.1 - 2026-09-17
+
+This update expands the regular Host Game controls, improves synchronization for dense object-brush edits and compatible third-party mods, strengthens residential economy correction, and prevents milestone popups from leaving an entire session paused when a player is away.
+
+### New
+
+* Added Approve Players and Simulation Sync to the normal Multiplayer > Host Game flow.
+* Added an Auto-Approve Steam Friends rule. Authenticated Steam friends may join immediately while everyone else still waits for host approval. This option is available for Steam Relay sessions only.
+* Added a client resync policy with three choices: Allow, Ask Host, and Host Only.
+* Ask Host now displays an in-game prompt containing the requesting player and reason, with Accept and Decline actions.
+* Added synchronization support for durable ECS component and buffer state used by compatible third-party mods.
+
+### Bug fixes
+
+* Object and vegetation brush display footprints are no longer mistaken for terrain edits, avoiding rejected commands while the actual objects synchronize separately.
+* Household income is now corrected immediately after the local game recalculates it, preventing clients from consuming stale residential-economy values.
+* Milestone and building-unlock popups now close automatically after 10 seconds during multiplayer.
+* This prevents an AFK host or client from indefinitely blocking simulation continuation for everyone else.
+* Clients now receive the native milestone popup for newly reached host milestones, including milestone 1, without replaying earlier milestones or duplicating development points.
+* Release builds now always include and validate the multiplayer UI bundle, preventing the main-menu button, in-game button and milestone countdown from all being absent on affected installations.
+
+### Performance
+
+* Added bounded batching for object-brush placements and deletions. Dense tree and prop strokes now travel as frame batches instead of flooding the session with one command per object.
+* Improved Steam Relay congestion control so stale quality or ping reports do not repeatedly reduce the transfer rate while current traffic is being acknowledged successfully.
+
+### Quality of life
+
+* Added a visible countdown bar before milestone and building-unlock popups close, allowing players to dismiss them normally during the grace period.
+* The mod's Options page now shows its version at the top of the General tab.
+* Removed the read-only status rows from that page. The in-game multiplayer panel and the join screen already report the same session state live.
+
+### Compatibility
+
+* The object-brush batching and mod-state synchronization changes require protocol version 68. All players must update to version 1.7.1 before joining the same session.
+
 ## Version 0.1.7 - 2026-09-15
 
 This update focuses on improving performance, giving players more control over simulation synchronization, reducing unnecessary resyncs, fixing several gameplay synchronization issues, and expanding mod compatibility. It also brings support up to game version 1.6.2f1.

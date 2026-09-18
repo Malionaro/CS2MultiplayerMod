@@ -162,7 +162,12 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
             });
 
             _observer = SyncObserverBinding.Bind(
-                () => new CommandObserver(_incoming, ObjectDeleteCommand.Id, NetDeleteCommand.Id), DrainQueue);
+                () => new CommandObserver(_incoming, ObjectDeleteCommand.Id,
+                        ObjectDeleteBatchCommand.Id, NetDeleteCommand.Id)
+                    {
+                        MaxBodyBytes = ObjectDeleteBatchCommand.MaxEncodedBytes,
+                    },
+                DrainQueue);
         }
 
         protected override void OnDestroy()
@@ -264,6 +269,9 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
                     if (message.CommandId == ObjectDeleteCommand.Id)
                         (objects ?? (objects = new List<(ObjectDeleteCommand, long)>()))
                             .Add((ObjectDeleteCommand.Decode(message.Body), freshDeadline));
+                    else if (message.CommandId == ObjectDeleteBatchCommand.Id)
+                        AppendObjectDeleteBatch(ObjectDeleteBatchCommand.Decode(message.Body),
+                            freshDeadline, ref objects);
                     else if (message.CommandId == NetDeleteCommand.Id)
                     {
                         if (netBusy)
@@ -327,6 +335,18 @@ namespace CS2MultiplayerMod.Game.Sync.Systems
 
         private static string DeleteKey(string prefabName, float3 position) =>
             "del|" + ReplicationGuard.Key(prefabName, position);
+
+        /// <summary>
+        /// Prevent a directly-realized remote tree/prop deletion from being captured as a new
+        /// local bulldoze at ModificationEnd. The key is exact to the victim, so unrelated local
+        /// deletes in the same frame are still published.
+        /// </summary>
+        internal void MarkRemoteObjectDelete(string prefabName, float3 position, long now)
+        {
+            if (!string.IsNullOrEmpty(prefabName))
+                _guard.Mark(DeleteKey(prefabName, position), now);
+        }
+
 
     }
 }

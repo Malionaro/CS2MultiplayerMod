@@ -156,8 +156,8 @@ namespace CS2MultiplayerMod.Core.Session
                 SendTo(ConnectionId.Server, new ResyncRequestMessage(LocalPlayerId, reason, automatic));
                 _log.Event(LogTopic.Session, "World sync request sent to host (" + reason + ").");
                 NotifyChat(null, automatic
-                    ? "The mod requested an automatic world sync - the host will stream you its city."
-                    : "World sync requested - the host will stream you its city.");
+                    ? "The mod sent an automatic world sync request to the host."
+                    : "World sync request sent to the host.");
             }
             else if (Role == SessionRole.Host)
             {
@@ -188,7 +188,47 @@ namespace CS2MultiplayerMod.Core.Session
 
             reason = WireGuard.SanitizeText(reason, WireGuard.MaxResyncReasonLength);
             if (reason.Length == 0) reason = automatic ? "automatic recovery" : ManualSyncReason;
+            ClientResyncPolicy resyncPolicy = _config != null
+                ? _config.ClientResyncPolicy
+                : ClientResyncPolicy.Allow;
 
+            if (resyncPolicy == ClientResyncPolicy.HostOnly)
+            {
+                string deniedName = peer != null && peer.Name != null ? peer.Name : from.ToString();
+                _log.Warn(LogTopic.Session, "Declined world sync request from " + deniedName +
+                    " because the session policy is host-only.");
+                SendTo(from, new ChatMessage(null,
+                    "World sync request declined: this session allows host-initiated syncs only."));
+                return;
+            }
+
+            if (resyncPolicy == ClientResyncPolicy.RequireApproval)
+            {
+                if (peer == null) return;
+                peer.PendingResyncReason = reason;
+                peer.PendingResyncAutomatic = automatic;
+                if (!peer.AwaitingResyncApproval)
+                {
+                    peer.AwaitingResyncApproval = true;
+                    _log.Event(LogTopic.Session, "World sync request from " + peer.Name +
+                        " is waiting for host approval: " + reason + ".");
+                    SendTo(from, new ChatMessage(null,
+                        "World sync request received - waiting for host approval."));
+                }
+                else
+                {
+                    _log.Detail(LogTopic.Session, "Updated pending world sync request from " +
+                        peer.Name + ": " + reason + ".");
+                }
+                return;
+            }
+
+            AcceptClientResyncRequest(from, peer, nowUnixMs, reason, automatic);
+        }
+
+        private bool AcceptClientResyncRequest(ConnectionId from, Peer peer, long nowUnixMs,
+            string reason, bool automatic)
+        {
             // Rate limit: a misbehaving client spamming /sync would otherwise keep the
             // host in a permanent save+stream loop. (Per-peer budgets run on top.)
             if (nowUnixMs - _lastResyncAcceptedUnixMs < ResyncRequestCooldownMs)
@@ -196,7 +236,7 @@ namespace CS2MultiplayerMod.Core.Session
                 _log.Warn(LogTopic.Session, "Ignoring world sync request from " +
                     (peer != null ? peer.ToString() : from.ToString()) + " (" + reason +
                     "): a world sync ran moments ago.");
-                return;
+                return false;
             }
             _lastResyncAcceptedUnixMs = nowUnixMs;
 
@@ -216,6 +256,53 @@ namespace CS2MultiplayerMod.Core.Session
             BroadcastToAll(new ChatMessage(null, notice), ConnectionId.None);
             NotifyChat(null, notice);
             NotifyResyncRequested(peer != null ? peer.PlayerId : -1, from);
+            return true;
+        }
+
+        /// <summary>Host-only: accept a queued client world-sync request.</summary>
+        public bool ApproveResyncRequest(int playerId, long nowUnixMs)
+        {
+            if (Role != SessionRole.Host) return false;
+            Peer peer = FindPendingResyncRequest(playerId);
+            if (peer == null) return false;
+
+            string reason = peer.PendingResyncReason;
+            bool automatic = peer.PendingResyncAutomatic;
+            // Several clients can be waiting at once. If another approved sync just began,
+            // keep this card queued rather than making it disappear without doing anything.
+            if (AcceptClientResyncRequest(peer.Connection, peer, nowUnixMs, reason, automatic))
+                ClearPendingResync(peer);
+            return true;
+        }
+
+        /// <summary>Host-only: decline a queued client world-sync request.</summary>
+        public bool DeclineResyncRequest(int playerId)
+        {
+            if (Role != SessionRole.Host) return false;
+            Peer peer = FindPendingResyncRequest(playerId);
+            if (peer == null) return false;
+
+            ClearPendingResync(peer);
+            _log.Event(LogTopic.Session, "Host declined the world sync request from " + peer.Name + ".");
+            SendTo(peer.Connection, new ChatMessage(null, "The host declined your world sync request."));
+            return true;
+        }
+
+        private Peer FindPendingResyncRequest(int playerId)
+        {
+            foreach (var pair in _peers)
+            {
+                Peer peer = pair.Value;
+                if (peer.AwaitingResyncApproval && peer.PlayerId == playerId) return peer;
+            }
+            return null;
+        }
+
+        private static void ClearPendingResync(Peer peer)
+        {
+            peer.AwaitingResyncApproval = false;
+            peer.PendingResyncReason = null;
+            peer.PendingResyncAutomatic = false;
         }
 
         /// <summary>

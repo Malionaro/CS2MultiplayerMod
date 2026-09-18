@@ -88,7 +88,7 @@ First: both players have to use the same connection type. See
 
 ## Mod Version Issues
 
-Check that you have the same mod version as the people you are trying to play with. Update the mod via Paradox Mods (PDXMods) to the newest version.
+Check that you have the same mod version as the people you are trying to play with. Your version is shown at the top of Options → CS2 Multiplayer Mod → General. Update the mod via Paradox Mods (PDXMods) to the newest version.
 
 Still having issues? Remove the mod on PDXMods. Restart the game. Reinstall the mod on PDXMods. Restart the game.
 
@@ -144,7 +144,7 @@ Check that you do not have any [launch options](https://cs2.paradoxwikis.com/Lau
 The mod options carry a Host tab and a Join tab that can start or join a session without the
 in-game screens.
 
-![](assets/img/ui-options-general.png)
+![](assets/img/ui-options-general.webp)
 
 !!! warning "Those tabs are only a fallback"
 

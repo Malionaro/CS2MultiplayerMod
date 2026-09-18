@@ -15,9 +15,9 @@ namespace CS2MultiplayerMod
 {
     [FileLocation(nameof(CS2MultiplayerMod))]
     [SettingsUITabOrder(GeneralTab, JoinTab, HostTab, AdvancedTab)]
-    [SettingsUIGroupOrder(GeneralGroup, StatusGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
+    [SettingsUIGroupOrder(GeneralGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
         HostSetupGroup, HostActionGroup, CompatibilityGroup)]
-    [SettingsUIShowGroupName(GeneralGroup, StatusGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
+    [SettingsUIShowGroupName(GeneralGroup, SessionGroup, JoinSetupGroup, JoinActionGroup,
         HostSetupGroup, HostActionGroup, CompatibilityGroup)]
     public class Setting : ModSetting
     {
@@ -31,7 +31,6 @@ namespace CS2MultiplayerMod
         public const string AdvancedTab = "Advanced";
 
         public const string GeneralGroup = "General";
-        public const string StatusGroup = "Status";
         public const string SessionGroup = "Session";
         public const string JoinSetupGroup = "JoinSetup";
         public const string JoinActionGroup = "JoinAction";
@@ -42,6 +41,9 @@ namespace CS2MultiplayerMod
         /// <summary>Values of <see cref="HostConnection"/>. Stored as strings so the UI binding is one plain value.</summary>
         public const string ConnectionRelay = "relay";
         public const string ConnectionDirect = "direct";
+        public const string ResyncAllow = "allow";
+        public const string ResyncApproval = "approval";
+        public const string ResyncHostOnly = "hostOnly";
 
         private string _hostPort = "25001";
         private string _hostPassword = "";
@@ -113,6 +115,11 @@ namespace CS2MultiplayerMod
             return !IsRelayHosting();
         }
 
+        public bool HideAutoApproveSteamFriends()
+        {
+            return IsDirectHosting() || !RequireJoinApproval;
+        }
+
         /// <summary>How this machine will be reached, resolved once at host/join time.</summary>
         public TransportMode HostTransport()
         {
@@ -120,6 +127,14 @@ namespace CS2MultiplayerMod
         }
 
         // ---- General tab ------------------------------------------------------
+
+        /// <summary>
+        /// The three numbers a report has to carry: the mod version, the wire protocol, and on a
+        /// locally built copy the stamp of that build - a release has none, so a published build
+        /// still reads as a plain version.
+        /// </summary>
+        [SettingsUISection(GeneralTab, GeneralGroup)]
+        public string ModVersion => Mod.VersionLine;
 
         [SettingsUISection(GeneralTab, GeneralGroup)]
         public bool EnableMod { get; set; } = true;
@@ -203,24 +218,6 @@ namespace CS2MultiplayerMod
         /// </summary>
         [SettingsUIHidden]
         public bool DisclaimerAccepted { get; set; } = false;
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusRole => Mod.Service != null ? Mod.Service.StatusRoleText : L10n.T(L10n.Key.StatusOffline);
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusState => Mod.Service != null ? Mod.Service.StatusStateText : L10n.T(L10n.Key.StatusOffline);
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusPlayers => Mod.Service != null ? Mod.Service.StatusPlayersText : L10n.T(L10n.Key.PlayersNone);
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusAccess => Mod.Service != null ? Mod.Service.StatusAccessText : L10n.T(L10n.Key.NoSession);
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusExposure => Mod.Service != null ? Mod.Service.StatusExposureText : L10n.T(L10n.Key.NoSession);
-
-        [SettingsUISection(GeneralTab, StatusGroup)]
-        public string StatusWorld => Mod.Service != null ? Mod.Service.StatusWorldText : L10n.T(L10n.Key.WorldNone);
 
         [SettingsUIButton]
         [SettingsUIHideByCondition(typeof(Setting), nameof(IsNotInSession))]
@@ -316,8 +313,48 @@ namespace CS2MultiplayerMod
         [SettingsUISection(HostTab, HostSetupGroup)]
         public bool LanOnly { get; set; } = false;
 
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsInSession))]
         [SettingsUISection(HostTab, HostSetupGroup)]
         public bool RequireJoinApproval { get; set; } = true;
+
+        [SettingsUIHideByCondition(typeof(Setting), nameof(HideAutoApproveSteamFriends))]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsInSession))]
+        [SettingsUISection(HostTab, HostSetupGroup)]
+        public bool AutoApproveSteamFriends { get; set; } = false;
+
+        [SettingsUIDropdown(typeof(Setting), nameof(GetResyncPolicyValues))]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsInSession))]
+        [SettingsUISection(HostTab, HostSetupGroup)]
+        public string ResyncPolicy { get; set; } = ResyncAllow;
+
+        public static DropdownItem<string>[] GetResyncPolicyValues()
+        {
+            return new[]
+            {
+                new DropdownItem<string>
+                {
+                    value = ResyncAllow,
+                    displayName = LocalizedString.Value(L10n.T(L10n.Key.UiResyncAllow)),
+                },
+                new DropdownItem<string>
+                {
+                    value = ResyncApproval,
+                    displayName = LocalizedString.Value(L10n.T(L10n.Key.UiResyncApproval)),
+                },
+                new DropdownItem<string>
+                {
+                    value = ResyncHostOnly,
+                    displayName = LocalizedString.Value(L10n.T(L10n.Key.UiResyncHostOnly)),
+                },
+            };
+        }
+
+        public ClientResyncPolicy SelectedClientResyncPolicy()
+        {
+            if (ResyncPolicy == ResyncApproval) return Core.Session.ClientResyncPolicy.RequireApproval;
+            if (ResyncPolicy == ResyncHostOnly) return Core.Session.ClientResyncPolicy.HostOnly;
+            return Core.Session.ClientResyncPolicy.Allow;
+        }
 
         [SettingsUITextInput]
         [SettingsUISection(HostTab, HostSetupGroup)]
@@ -492,6 +529,8 @@ namespace CS2MultiplayerMod
             JoinPassword = "";
             LanOnly = false;
             RequireJoinApproval = true;
+            AutoApproveSteamFriends = false;
+            ResyncPolicy = ResyncAllow;
             SimulationSync = true;
             MaxPlayers = "8";
         }

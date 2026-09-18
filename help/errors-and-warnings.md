@@ -175,7 +175,7 @@ Clients normally pause autosave while using the host's temporary world and resto
 
 ### Untested game version
 
-The installed game build is not in the mod's tested-version list. Multiplayer may still work, but a game update can change simulation or UI behavior. Keep backups and check for a mod update.
+The installed game build is not in the mod's tested-version list. Multiplayer may still work, but a game update can change simulation or UI behavior. Check for a mod update.
 
 ### Other mods enabled
 

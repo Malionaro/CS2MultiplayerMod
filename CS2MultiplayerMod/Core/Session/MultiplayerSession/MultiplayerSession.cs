@@ -164,6 +164,16 @@ namespace CS2MultiplayerMod.Core.Session
             }
         }
 
+        /// <summary>Host-only client world-sync requests waiting for an allow/deny answer.</summary>
+        public IEnumerable<Peer> PendingResyncRequests
+        {
+            get
+            {
+                foreach (var pair in _peers)
+                    if (pair.Value.AwaitingResyncApproval) yield return pair.Value;
+            }
+        }
+
         public void AddObserver(ISessionObserver observer)
         {
             if (observer != null && !_observers.Contains(observer)) _observers.Add(observer);

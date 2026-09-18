@@ -9,6 +9,7 @@ using Game;
 using Game.SceneFlow;
 using Game.UI;
 using Game.UI.Menu;
+using System.IO;
 
 namespace CS2MultiplayerMod.Game
 {
@@ -48,6 +49,20 @@ namespace CS2MultiplayerMod.Game
         private bool _hostAfterWorldLoad;
         private bool _hostWorldLoadStarted;
         private ValueBinding<bool> _multiplayerMenuActiveBinding;
+
+        private static bool IsUiBundleInstalled()
+        {
+            try
+            {
+                string assemblyDirectory = Path.GetDirectoryName(typeof(MultiplayerUISystem).Assembly.Location);
+                return !string.IsNullOrEmpty(assemblyDirectory) &&
+                       File.Exists(Path.Combine(assemblyDirectory, "CS2MultiplayerMod.mjs"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         protected override void OnCreate()
         {
@@ -180,6 +195,8 @@ namespace CS2MultiplayerMod.Game
             // Joins waiting for the host's approval (empty on a client / when approval is off).
             AddUpdateBinding(new GetterValueBinding<string>(Group, "pendingJoins",
                 () => Mod.Service != null ? Mod.Service.PendingJoinsJson : "[]"));
+            AddUpdateBinding(new GetterValueBinding<string>(Group, "pendingResyncs",
+                () => Mod.Service != null ? Mod.Service.PendingResyncsJson : "[]"));
             // Hosting shares the loaded city, so it needs one and no running session.
             // CannotStartHost also owns the other-mod gate and its expert override.
             AddUpdateBinding(new GetterValueBinding<bool>(Group, "canHost",
@@ -221,6 +238,10 @@ namespace CS2MultiplayerMod.Game
                 () => Mod.Setting != null && Mod.Setting.LanOnly));
             AddUpdateBinding(new GetterValueBinding<bool>(Group, "requireApproval",
                 () => Mod.Setting == null || Mod.Setting.RequireJoinApproval));
+            AddUpdateBinding(new GetterValueBinding<bool>(Group, "autoApproveSteamFriends",
+                () => Mod.Setting != null && Mod.Setting.AutoApproveSteamFriends));
+            AddUpdateBinding(new GetterValueBinding<string>(Group, "resyncPolicy",
+                () => Mod.Setting != null ? Mod.Setting.ResyncPolicy : Setting.ResyncAllow));
             // Reads the SESSION's answer once one is running: a client's own setting has no say,
             // and a host that changed the box mid-session has not changed the session.
             AddUpdateBinding(new GetterValueBinding<bool>(Group, "simulationSync",
@@ -248,9 +269,30 @@ namespace CS2MultiplayerMod.Game
             AddBinding(new TriggerBinding<bool>(Group, "setLanOnly",
                 value => { if (Mod.Setting != null) Mod.Setting.LanOnly = value; }));
             AddBinding(new TriggerBinding<bool>(Group, "setRequireApproval",
-                value => { if (Mod.Setting != null) Mod.Setting.RequireJoinApproval = value; }));
+                value =>
+                {
+                    if (Mod.Setting != null && !Mod.Setting.IsInSession())
+                        Mod.Setting.RequireJoinApproval = value;
+                }));
+            AddBinding(new TriggerBinding<bool>(Group, "setAutoApproveSteamFriends",
+                value =>
+                {
+                    if (Mod.Setting != null && !Mod.Setting.IsInSession())
+                        Mod.Setting.AutoApproveSteamFriends = value;
+                }));
+            AddBinding(new TriggerBinding<string>(Group, "setResyncPolicy",
+                value =>
+                {
+                    if (Mod.Setting == null || Mod.Setting.IsInSession()) return;
+                    Mod.Setting.ResyncPolicy = value == Setting.ResyncApproval ||
+                        value == Setting.ResyncHostOnly ? value : Setting.ResyncAllow;
+                }));
             AddBinding(new TriggerBinding<bool>(Group, "setSimulationSync",
-                value => { if (Mod.Setting != null) Mod.Setting.SimulationSync = value; }));
+                value =>
+                {
+                    if (Mod.Setting != null && !Mod.Setting.IsInSession())
+                        Mod.Setting.SimulationSync = value;
+                }));
 
             AddBinding(new TriggerBinding<string>(Group, "sendChat",
                 value => { if (Mod.Service != null) Mod.Service.SendChatFromUi(value); }));
@@ -262,6 +304,10 @@ namespace CS2MultiplayerMod.Game
                 playerId => { if (Mod.Service != null) Mod.Service.ApproveJoinFromUi(playerId); }));
             AddBinding(new TriggerBinding<int>(Group, "declineJoin",
                 playerId => { if (Mod.Service != null) Mod.Service.DeclineJoinFromUi(playerId); }));
+            AddBinding(new TriggerBinding<int>(Group, "approveResync",
+                playerId => { if (Mod.Service != null) Mod.Service.ApproveResyncFromUi(playerId); }));
+            AddBinding(new TriggerBinding<int>(Group, "declineResync",
+                playerId => { if (Mod.Service != null) Mod.Service.DeclineResyncFromUi(playerId); }));
             AddBinding(new TriggerBinding(Group, "hostStart", StartHostFromSettings));
             AddBinding(new TriggerBinding(Group, "hostLoadWorld", () =>
                 OpenHostWorldScreen(MenuUISystem.MenuScreen.LoadGame)));
@@ -472,12 +518,21 @@ namespace CS2MultiplayerMod.Game
             if (UnityEngine.Time.realtimeSinceStartup - _createdAt < UiReadyGraceSeconds) return;
 
             _uiModuleWarned = true;
-            SyncLog.Warn(LogTopic.Ui,
-                "The multiplayer UI module never reported in - the main-menu button is most likely missing. " +
-                "Either CS2MultiplayerMod.mjs is not in the mod folder, or another mod's broken UI module " +
-                "(known offender: Gooee) crashed the game's UI-module load chain before it reached this mod. " +
-                "Check the game's UI log for JS errors from other mods and remove the broken mod. " +
-                "Joining still works without the button via Options > CS2 Multiplayer Mod > Join Game.");
+            if (!IsUiBundleInstalled())
+            {
+                SyncLog.Warn(LogTopic.Ui,
+                    "The multiplayer UI module never reported in because CS2MultiplayerMod.mjs is missing " +
+                    "beside the mod DLL. The installed mod package is incomplete; reinstall or update it. " +
+                    "Joining still works via Options > CS2 Multiplayer Mod > Join Game.");
+            }
+            else
+            {
+                SyncLog.Warn(LogTopic.Ui,
+                    "The multiplayer UI module never reported in even though CS2MultiplayerMod.mjs is installed. " +
+                    "Another UI module may have crashed the game's module-load chain before it reached this mod. " +
+                    "Check the game's UI log for the first JavaScript error. Joining still works via " +
+                    "Options > CS2 Multiplayer Mod > Join Game.");
+            }
         }
     }
 }

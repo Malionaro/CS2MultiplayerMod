@@ -148,7 +148,14 @@ namespace CS2MultiplayerMod.Core.Session
             // Optional manual gate: hold the join and let the host admit it by hand. The
             // player is given an id now so the host UI can reference this exact request,
             // but stays un-Handshaked (no seat, no traffic) until FinalizeJoin runs.
-            if (_config.RequireJoinApproval)
+            bool friendAutoApproved = false;
+            if (_config.RequireJoinApproval && _config.AutoApprovePlatformFriends)
+            {
+                var friendLookup = _transport as IPlatformFriendLookup;
+                friendAutoApproved = friendLookup != null && friendLookup.IsPlatformFriend(connection);
+            }
+
+            if (_config.RequireJoinApproval && !friendAutoApproved)
             {
                 peer.PlayerId = _nextPlayerId++;
                 peer.AwaitingApproval = true;
@@ -157,6 +164,9 @@ namespace CS2MultiplayerMod.Core.Session
                     " passed the checks; awaiting host approval.");
                 return;
             }
+
+            if (friendAutoApproved)
+                _log.Event(LogTopic.Session, "Auto-approved Steam friend " + peer + ".");
 
             FinalizeJoin(connection, peer, nowUnixMs);
         }

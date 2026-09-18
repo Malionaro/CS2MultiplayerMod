@@ -4,6 +4,16 @@ using System.Collections.Generic;
 namespace CS2MultiplayerMod.Core.Networking
 {
     /// <summary>
+    /// Optional capability exposed by authenticated platform transports. The core session
+    /// uses it only for convenience rules such as auto-approving a platform friend; direct
+    /// IP transports deliberately do not implement it.
+    /// </summary>
+    public interface IPlatformFriendLookup
+    {
+        bool IsPlatformFriend(ConnectionId connection);
+    }
+
+    /// <summary>
     /// Reliable, ordered, message-oriented transport.
     ///
     /// Implementations deliver whole application payloads (the wire framing is an

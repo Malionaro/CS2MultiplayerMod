@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using CS2MultiplayerMod.Core.Diagnostics;
@@ -73,8 +74,36 @@ namespace CS2MultiplayerMod
         internal static string CompatibilityVersion =>
             _compatibilityVersion ?? (_compatibilityVersion = ReleasePart(Version));
 
+        /// <summary>
+        /// The stamp a locally built copy carries after the version, and an empty string in a
+        /// published one: a released build is the version and nothing else. The number changes
+        /// on every local build, so it answers the only question a dev build raises - whether
+        /// the game is running what was just compiled. Never on the wire: peers compare
+        /// <see cref="CompatibilityVersion"/>, which two dev builds of one release share.
+        /// </summary>
+        internal static string BuildStamp => _buildStamp ?? (_buildStamp = ReadBuildStamp());
+
+        /// <summary>
+        /// What the options screen shows. A released build is the version and nothing else - the
+        /// protocol number is a development detail and means nothing to a player. A locally built
+        /// copy adds the build stamp and the protocol, which is what a dev build is read for.
+        /// </summary>
+        internal static string VersionLine =>
+            BuildStamp.Length == 0
+                ? Version
+                : L10n.F(L10n.Key.VersionLineDev, Version, BuildStamp,
+                    ProtocolConstants.ProtocolVersion);
+
+        /// <summary>Version and build stamp for the log, which is read without a language.</summary>
+        internal static string StampedVersion =>
+            BuildStamp.Length == 0 ? Version : Version + " (dev " + BuildStamp + ")";
+
+        /// <summary>Build metadata marker the csproj stamps onto a non-release build.</summary>
+        private const string DevMarker = "+dev.";
+
         private static string _version;
         private static string _compatibilityVersion;
+        private static string _buildStamp;
 
         /// <summary>The leading digits-and-dots of a version, without a trailing dot.</summary>
         private static string ReleasePart(string version)
@@ -88,31 +117,44 @@ namespace CS2MultiplayerMod
 
         private static string ReadVersion()
         {
+            // A build that has SourceLink, a revision id or our own dev stamp appends "+<...>";
+            // these strings are read and compared, so keep only the part a human calls a version.
+            string stamped = ReadInformationalVersion();
+            if (stamped.Length > 0)
+            {
+                int plus = stamped.IndexOf('+');
+                string text = plus > 0 ? stamped.Substring(0, plus) : stamped;
+                if (text.Length > 0) return text;
+            }
+
+            return typeof(Mod).Assembly.GetName().Version.ToString();
+        }
+
+        private static string ReadBuildStamp()
+        {
+            string stamped = ReadInformationalVersion();
+            int marker = stamped.IndexOf(DevMarker, StringComparison.Ordinal);
+            return marker < 0 ? "" : stamped.Substring(marker + DevMarker.Length);
+        }
+
+        private static string ReadInformationalVersion()
+        {
             try
             {
                 var stamped = (System.Reflection.AssemblyInformationalVersionAttribute)
                     System.Attribute.GetCustomAttribute(typeof(Mod).Assembly,
                         typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-                if (stamped != null && !string.IsNullOrEmpty(stamped.InformationalVersion))
-                {
-                    // A build that has SourceLink or a revision id appends "+<sha>"; these strings
-                    // are read and compared, so keep only the part a human would call a version.
-                    string text = stamped.InformationalVersion;
-                    int plus = text.IndexOf('+');
-                    if (plus > 0) text = text.Substring(0, plus);
-                    if (text.Length > 0) return text;
-                }
+                return stamped == null || stamped.InformationalVersion == null
+                    ? "" : stamped.InformationalVersion;
             }
-            catch { /* fall through to the assembly version */ }
-
-            return typeof(Mod).Assembly.GetName().Version.ToString();
+            catch { return ""; /* the caller falls back to the assembly version */ }
         }
 
         public void OnLoad(UpdateSystem updateSystem)
         {
             // Crash forensics first: the flight log must be recording before anything
             // else of ours can fail (see FlightRecorder).
-            FlightRecorder.Start(Version);
+            FlightRecorder.Start(StampedVersion);
 
             // Route the sync inbox's rare backpressure/drain warnings through the one logger.
             // They are pipeline faults, so they are never gated by a switch.
@@ -175,6 +217,11 @@ namespace CS2MultiplayerMod
             // state) now stays in sync even while a player is paused. Channel capture is
             // gated to ~1 Hz internally, so the render-rate phase adds no extra traffic.
             updateSystem.UpdateAt<Game.Sync.Systems.CityStateSyncSystem>(SystemUpdatePhase.UIUpdate);
+            // Remote milestone popups use the game's native MilestoneReachedEvent so the full
+            // vanilla screen and our countdown appear. DevTreeSystem also treats that event as
+            // a reward; remove only the points from our marked presentation event immediately.
+            updateSystem.UpdateAfter<Game.Sync.Systems.RemoteMilestoneRewardCorrectionSystem,
+                global::Game.City.DevTreeSystem>(SystemUpdatePhase.GameSimulation);
             // Service fee accounting has producers on both sides of ServiceFeeSystem: transit and
             // parking arrive before it, utility sales/trade after it. Empty the redundant client
             // queue at both boundaries; the host's absolute collected records are reinstalled by
@@ -338,6 +385,12 @@ namespace CS2MultiplayerMod
             // the Created tag it keys on is gone by the next frame. Capturing here reads the
             // resolved disaster, not an empty shell.
             updateSystem.UpdateAt<Game.Sync.Systems.DisasterSyncSystem>(SystemUpdatePhase.ModificationEnd);
+            // ModificationEnd, next to disasters: an ignite request only becomes a placed
+            // event once the game's own event pass has run, and its Created tag is gone by
+            // the next frame. Fires have no disaster-style local suppression - every
+            // machine rolls its own ignitions and reports them, both cities converging on
+            // the union - so this detector stays on for every role.
+            updateSystem.UpdateAt<Game.Sync.Systems.FireSyncSystem>(SystemUpdatePhase.ModificationEnd);
             // After the game's own auto-name initialization, which runs late in ModificationEnd and
             // is what fills in a new street's or district's name draw. Capturing before it would
             // read the draw one frame stale. ModificationEnd also keeps working while the game is
@@ -399,7 +452,7 @@ namespace CS2MultiplayerMod
             // of those said nothing a reader could act on, and the only question they answered -
             // "did the mod actually come up?" - is answered better here, with the numbers that
             // decide whether two players can even play together.
-            SyncLog.Event(LogTopic.Startup, "Loaded: mod v" + Version + ", protocol v" +
+            SyncLog.Event(LogTopic.Startup, "Loaded: mod v" + StampedVersion + ", protocol v" +
                 ProtocolConstants.ProtocolVersion + ", game v" + UnityEngine.Application.version +
                 ", sync systems registered, verbose logging " +
                 (Setting != null && Setting.VerboseLogging ? "on" : "off") + ".");

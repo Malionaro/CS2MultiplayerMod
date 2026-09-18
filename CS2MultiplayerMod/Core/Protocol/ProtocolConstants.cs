@@ -4,6 +4,12 @@
     {
         /// <summary>
         /// Wire-format version. Bump when message layout changes to refuse handshake on mismatch.
+        /// v70 adds command id 34, service building state: one command per
+        /// abandonment, condemnation or destruction marker change on a non-spawnable
+        /// building, carrying the standing prefab, its position and the resulting marker
+        /// set. Growables keep their own lifecycle command and removals stay with delete
+        /// sync; a v69 peer knows neither the id nor the marker ownership and is refused
+        /// at the handshake instead of diverging silently.
         /// v69 adds command id 33, fire ignition: one command per building or tree
         /// fire start, carrying the target's prefab and position plus the ignition intensity.
         /// Only starts travel; the burn, the spread and the extinguish run locally on every
@@ -226,7 +232,7 @@
         // v66 adds bounded display-only hover geometry to player presence updates.
         // v68 batches one brush frame so dense tree strokes do not overflow or trickle in.
         // Object-brush display markers are also excluded from terrain synchronization.
-        public const int ProtocolVersion = 69;
+        public const int ProtocolVersion = 70;
 
         /// <summary>
         /// Hard cap on a single payload, guarding against corrupt length prefixes.
